@@ -1,20 +1,20 @@
 # Split Routing Logic
 
-Back: [Wrapper Architecture](./02-wrapper-architecture.md) | Forward: [Config Reference](./04-config-reference.md)
+Zurück: [Wrapper Architecture](./02-wrapper-architecture.md) | Weiter: [Config Reference](./04-config-reference.md)
 
-## Inputs that drive routing
-- `--mode` (`conversation`, `tool_bridge`)
-- `--routing-mode` (`legacy`, `strict_split`)
-- explicit tool intent in user query
-- fastpath detectors for deterministic local workflows
+## Routing-Eingaben
+- `--mode`: `conversation` oder `tool_bridge`
+- `--routing-mode`: `legacy` oder `strict_split`
+- erkannter Tool-Intent in der Anfrage
+- Fastpath-Matches
 
-## Route outcomes
+## Route-Ergebnisse
 - `twinmind_conversation`
 - `twinmind_tool_bridge`
 - `split_executor_bridge`
-- deterministic fastpaths (`heartbeat`, `cron`, selected skill routes)
+- fastpath-spezifische direkte Routen
 
-## Route Decision Diagram
+## Entscheidungsbaum
 ```mermaid
 flowchart TD
     A[Incoming Request] --> B{Fastpath match?}
@@ -29,31 +29,49 @@ flowchart TD
     H -->|strict_split| J[split_executor_bridge]
 ```
 
-## strict_split execution sequence
+## Was ist die Legacy Bridge?
+`legacy bridge` ist der kompatible Bridge-Modus.
+
+Eigenschaften:
+- Kein harter Planner/Executor-Split.
+- Ein Brückenpfad führt Protokoll, Tool-Aufrufe und finale Antwort zusammen.
+- Gut für kompatibles Verhalten mit weniger Split-Komplexität.
+
+Grenzen:
+- Weniger klare Rollentrennung als `strict_split`.
+- Debugging und Zuständigkeiten sind weniger strikt segmentiert.
+
+## Was ist strict_split?
+`strict_split` trennt Rollen klar:
+1. TwinMind Planner (optional Brief)
+2. Externer Executor (deterministische Tool-Protokollschritte)
+3. TwinMind Finalizer (nutzerfreundliche Endantwort)
+
+## Vergleich Legacy vs strict_split
 ```mermaid
 flowchart LR
-    A[Planner prompt (optional)] --> B[Executor protocol loop]
-    B --> C[Tool call execution]
-    C --> B
-    B --> D[Final action]
-    D --> E[TwinMind finalizer]
-    E --> F[User-facing response]
+    A[tool_bridge] --> B{routing_mode}
+    B -->|legacy| C[Single bridge loop]
+    B -->|strict_split| D[Planner]
+    D --> E[Executor loop]
+    E --> F[Finalizer]
 ```
 
 ## Guardrails
-- tool-call and step limits
-- protocol repair attempts
-- policy checks for shell and writes
-- degrade safely instead of hard process crashes
+- Step-Limits
+- Tool-Call-Limits
+- Protocol-Repair-Attempts
+- Shell/Write-Policies
+- kontrollierte Fallbacks statt harter Abbrüche
 
 ## Observability
-Look for these events in wrapper logs:
+Wichtige Events:
 - `router_decision`
 - `planner_brief_ready` / `planner_brief_failed`
 - `protocol_error`
 - `executor_failed`
 - `final`
 
-Next:
-- [Config Reference](./04-config-reference.md)
-- [Script Reference](./09-script-reference.md)
+Weiter:
+- [04-config-reference.md](./04-config-reference.md)
+- [09-script-reference.md](./09-script-reference.md)

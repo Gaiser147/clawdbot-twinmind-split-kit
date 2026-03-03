@@ -1,46 +1,46 @@
-# Overview
+# Überblick
 
-Back to: [Start Here](./00-start-here.md)
+Zurück: [Start Here](./00-start-here.md) | Weiter: [Wrapper Architecture](./02-wrapper-architecture.md)
 
-## Goal
-Standardize and explain the TwinMind wrapper + split routing stack for Clawdbot in a reproducible, migration-safe way.
+## Ziel
+Dieses Kit dokumentiert und operationalisiert den TwinMind Wrapper mit Split-Routing für Clawdbot.
 
-## Core Components
-- `vendor/twinmind_orchestrator.py`: wrapper runtime and routing core
-- `vendor/twinmind_memory_sync.py`: TwinMind memory synchronization
-- `vendor/twinmind_memory_query.py`: local memory lookup helper
+## Glossar (schnell)
+- `conversation`: TwinMind antwortet direkt.
+- `tool_bridge`: Wrapper erzwingt Tool-Protokoll.
+- `legacy bridge`: Bridge-Modus ohne strikte Trennung von Planung und Ausführung.
+- `strict_split`: Planner/Executor/Finalizer sind logisch getrennt.
+- `fastpath`: deterministische Kurzroute (z. B. spezielle lokale Requests).
 
-## Core Modes
-- `conversation`: TwinMind direct path
-- `tool_bridge`: protocol-driven tool loop
+## Was ändert sich gegenüber Standard-Clawdbot?
+- Ein dedizierter Wrapper wird primärer Backend-Einstieg.
+- Routing ist explizit steuerbar (`mode`, `routing_mode`).
+- Tool-Ausführung kann deterministisch in Split-Pfad laufen.
+- Migration und Rollback sind als Skript-Workflow verfügbar.
 
-## Split Modes
-- `legacy`: non-split bridge behavior
-- `strict_split`: TwinMind planner/finalizer + external executor
-
-## Runtime Responsibilities
-1. parse input and derive stable session identity
-2. route request to fastpath, conversation, or bridge flow
-3. enforce tool protocol and limits
-4. keep gateway-safe output semantics (`text`/`json`)
+## Core-Komponenten
+- `vendor/twinmind_orchestrator.py`: Wrapper-Routing und Runtime
+- `vendor/twinmind_memory_sync.py`: Memory-Index Aufbau
+- `vendor/twinmind_memory_query.py`: lokale Memory-Abfragen
 
 ## Visual Summary
 ```mermaid
 flowchart TD
     A[Request] --> B[Wrapper]
     B --> C{Fastpath?}
-    C -->|yes| D[Deterministic local action]
-    C -->|no| E{mode}
+    C -->|ja| D[Deterministische Aktion]
+    C -->|nein| E{mode}
     E -->|conversation| F[TwinMind SSE]
     E -->|tool_bridge| G{routing_mode}
-    G -->|legacy| H[Bridge loop]
+    G -->|legacy| H[Legacy Bridge]
     G -->|strict_split| I[Planner -> Executor -> Finalizer]
-    D --> J[Response]
+    D --> J[Antwort]
     F --> J
     H --> J
     I --> J
 ```
 
-Next:
+Nächste Schritte:
 - [Wrapper Architecture](./02-wrapper-architecture.md)
 - [Split Routing Logic](./03-split-routing.md)
+- [Config Reference](./04-config-reference.md)

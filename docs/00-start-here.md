@@ -1,65 +1,46 @@
-# Start Here: Split Logic + TwinMind Wrapper
+# Start Here: TwinMind Wrapper + Split-Logik
 
-This page is the architecture-first entrypoint.
+Zurück zur Startseite: [README](../README.md)
 
-## What this repository is about
-1. TwinMind wrapper internals
-2. Split routing behavior (`strict_split` vs `legacy`)
-3. Deterministic tool-bridge execution loop
-4. Migration/replication scripts around that core
+Diese Seite erklärt die Kernidee ohne tiefe Interna.
 
-## System view
+## Kernidee in 4 Sätzen
+1. Clawdbot ruft als Backend den TwinMind Wrapper auf.
+2. Der Wrapper entscheidet zwischen `conversation` und `tool_bridge`.
+3. In `tool_bridge` wird zwischen `legacy bridge` und `strict_split` unterschieden.
+4. Ziel ist kontrollierbares Routing, bessere Tool-Stabilität und nachvollziehbare Migration.
+
+## Begriffe (kurz)
+- `conversation`: Direkter TwinMind-Chatpfad.
+- `tool_bridge`: Striktes Tool-Protokoll mit `tool_call` und `final`.
+- `legacy bridge`: Ein-Brücken-Flow ohne harte Rollenaufteilung.
+- `strict_split`: TwinMind plant/finalisiert, Executor führt aus.
+
+## Einfaches Bild
 ```mermaid
 flowchart TD
-    A[Clawdbot CLI backend] --> B[twinmind_orchestrator.py]
+    A[Clawdbot Request] --> B[Wrapper]
     B --> C{mode}
-    C -->|conversation| D[TwinMind SSE]
+    C -->|conversation| D[Direkter TwinMind Pfad]
     C -->|tool_bridge| E{routing_mode}
-    E -->|legacy| F[Single bridge loop]
-    E -->|strict_split| G[TwinMind Planner]
-    G --> H[External Executor]
-    H --> I[Local Tools / skill_run]
-    I --> J[TwinMind Finalizer]
-    D --> K[User Response]
-    F --> K
-    J --> K
+    E -->|legacy| F[Legacy Bridge]
+    E -->|strict_split| G[Planner -> Executor -> Finalizer]
+    D --> H[Antwort]
+    F --> H
+    G --> H
 ```
 
-## Execution sequence (`strict_split`)
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Clawdbot
-    participant W as Wrapper
-    participant P as TwinMind Planner
-    participant E as Executor
-    participant T as Local Tools
-    participant F as TwinMind Finalizer
-
-    U->>C: Request
-    C->>W: CLI backend call
-    W->>P: Planner prompt (optional)
-    P-->>W: Planner brief
-    W->>E: Protocol prompt + planner brief
-    E->>W: tool_call/final JSON
-    W->>T: execute tool_call
-    T-->>W: TOOL_RESULT
-    W->>E: Continue loop
-    E-->>W: final
-    W->>F: user-facing finalization
-    F-->>W: Final answer
-    W-->>C: JSON output
-```
-
-## Read in this order
+## Was sollte ich als Neuling lesen?
 1. [01-overview.md](./01-overview.md)
-2. [02-wrapper-architecture.md](./02-wrapper-architecture.md)
-3. [03-split-routing.md](./03-split-routing.md)
-4. [04-config-reference.md](./04-config-reference.md)
-5. [09-script-reference.md](./09-script-reference.md)
+2. [03-split-routing.md](./03-split-routing.md)
+3. [04-config-reference.md](./04-config-reference.md)
 
-## Then move to operations
-- [05-migration-guide.md](./05-migration-guide.md)
-- [06-operations-runbook.md](./06-operations-runbook.md)
-- [08-rollback.md](./08-rollback.md)
-- [07-troubleshooting.md](./07-troubleshooting.md)
+## Was sollte ich als Betreiber lesen?
+1. [05-migration-guide.md](./05-migration-guide.md)
+2. [06-operations-runbook.md](./06-operations-runbook.md)
+3. [08-rollback.md](./08-rollback.md)
+
+## Tiefe Technik
+- [02-wrapper-architecture.md](./02-wrapper-architecture.md)
+- [09-script-reference.md](./09-script-reference.md)
+- [analysis/line_refs.txt](../analysis/line_refs.txt)
