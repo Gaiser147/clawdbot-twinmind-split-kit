@@ -1,22 +1,46 @@
 # Overview
 
-## Purpose
-This kit standardizes a TwinMind-wrapper-based architecture for Clawdbot and provides a controlled migration path for existing installations.
+Back to: [Start Here](./00-start-here.md)
 
-## Core components
-- `vendor/twinmind_orchestrator.py`: primary wrapper with conversation and tool-bridge modes.
-- `vendor/twinmind_memory_sync.py`: local memory index sync.
-- `vendor/twinmind_memory_query.py`: local memory query utility.
+## Goal
+Standardize and explain the TwinMind wrapper + split routing stack for Clawdbot in a reproducible, migration-safe way.
 
-## Modes
-- `conversation`: direct TwinMind conversation path.
-- `tool_bridge`: deterministic JSON protocol (`tool_call` / `final`) with local tool execution.
+## Core Components
+- `vendor/twinmind_orchestrator.py`: wrapper runtime and routing core
+- `vendor/twinmind_memory_sync.py`: TwinMind memory synchronization
+- `vendor/twinmind_memory_query.py`: local memory lookup helper
 
-## Split routing
-- `routing_mode=legacy`: no strict planner/executor split.
-- `routing_mode=strict_split`: TwinMind planner/finalizer + external executor.
+## Core Modes
+- `conversation`: TwinMind direct path
+- `tool_bridge`: protocol-driven tool loop
 
-## Goals of migration
-- Route Clawdbot CLI backend through TwinMind wrapper.
-- Keep non-related config keys intact.
-- Ensure rollback safety via manifest and backups.
+## Split Modes
+- `legacy`: non-split bridge behavior
+- `strict_split`: TwinMind planner/finalizer + external executor
+
+## Runtime Responsibilities
+1. parse input and derive stable session identity
+2. route request to fastpath, conversation, or bridge flow
+3. enforce tool protocol and limits
+4. keep gateway-safe output semantics (`text`/`json`)
+
+## Visual Summary
+```mermaid
+flowchart TD
+    A[Request] --> B[Wrapper]
+    B --> C{Fastpath?}
+    C -->|yes| D[Deterministic local action]
+    C -->|no| E{mode}
+    E -->|conversation| F[TwinMind SSE]
+    E -->|tool_bridge| G{routing_mode}
+    G -->|legacy| H[Bridge loop]
+    G -->|strict_split| I[Planner -> Executor -> Finalizer]
+    D --> J[Response]
+    F --> J
+    H --> J
+    I --> J
+```
+
+Next:
+- [Wrapper Architecture](./02-wrapper-architecture.md)
+- [Split Routing Logic](./03-split-routing.md)

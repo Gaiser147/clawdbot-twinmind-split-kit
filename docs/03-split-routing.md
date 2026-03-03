@@ -1,52 +1,59 @@
 # Split Routing Logic
 
-## Key inputs
-- `--mode`: `conversation` or `tool_bridge`
-- `--routing-mode`: `legacy` or `strict_split`
-- inferred tool intent from user message
-- fastpath detectors for specific operational requests
+Back: [Wrapper Architecture](./02-wrapper-architecture.md) | Forward: [Config Reference](./04-config-reference.md)
 
-## Route matrix
+## Inputs that drive routing
+- `--mode` (`conversation`, `tool_bridge`)
+- `--routing-mode` (`legacy`, `strict_split`)
+- explicit tool intent in user query
+- fastpath detectors for deterministic local workflows
 
-### Conversation mode without explicit tool intent
-- Route: `twinmind_conversation`
-- Behavior: direct TwinMind response path
-- Used for normal chat-style requests
+## Route outcomes
+- `twinmind_conversation`
+- `twinmind_tool_bridge`
+- `split_executor_bridge`
+- deterministic fastpaths (`heartbeat`, `cron`, selected skill routes)
 
-### Conversation mode with explicit tool intent
-- Route override into bridge logic
-- Behavior: deterministic tool-protocol execution
+## Route Decision Diagram
+```mermaid
+flowchart TD
+    A[Incoming Request] --> B{Fastpath match?}
+    B -->|yes| C[Fastpath handler]
+    B -->|no| D{mode == conversation?}
+    D -->|yes| E{Explicit tool intent?}
+    E -->|no| F[twinmind_conversation]
+    E -->|yes| G[tool_bridge override]
+    D -->|no| G
+    G --> H{routing_mode}
+    H -->|legacy| I[twinmind_tool_bridge]
+    H -->|strict_split| J[split_executor_bridge]
+```
 
-### Tool bridge + legacy
-- Route: `twinmind_tool_bridge`
-- Planner/executor/finalizer remain single-path behavior
-
-### Tool bridge + strict_split
-- Route: `split_executor_bridge`
-- Flow:
-  1. optional TwinMind planner brief
-  2. external executor produces protocol actions
-  3. local tools execute
-  4. TwinMind finalizer emits final user response
-
-## Fastpath handling
-Certain requests are intentionally short-circuited before generic model routing for reliability and deterministic behavior (for example heartbeat, cron, some local skill dispatches).
-
-## Protocol states in bridge loop
-- `tool_call`: run tool, append tool result, continue
-- `final`: return answer and finish
-- malformed: repair cycle with bounded retries
+## strict_split execution sequence
+```mermaid
+flowchart LR
+    A[Planner prompt (optional)] --> B[Executor protocol loop]
+    B --> C[Tool call execution]
+    C --> B
+    B --> D[Final action]
+    D --> E[TwinMind finalizer]
+    E --> F[User-facing response]
+```
 
 ## Guardrails
-- max steps
-- max tool calls
-- policy-limited shell execution
-- write disabled unless explicitly allowed
+- tool-call and step limits
+- protocol repair attempts
+- policy checks for shell and writes
+- degrade safely instead of hard process crashes
 
 ## Observability
-Router decisions and split route labels are written to log events, including:
+Look for these events in wrapper logs:
 - `router_decision`
-- `planner_brief_ready` or `planner_brief_failed`
-- `executor_failed`
+- `planner_brief_ready` / `planner_brief_failed`
 - `protocol_error`
+- `executor_failed`
 - `final`
+
+Next:
+- [Config Reference](./04-config-reference.md)
+- [Script Reference](./09-script-reference.md)

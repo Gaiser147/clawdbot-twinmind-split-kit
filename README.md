@@ -1,20 +1,56 @@
 # TwinMind Split Kit
 
-Self-contained package for:
-- documenting TwinMind wrapper + split logic,
-- migrating standard Linux Clawdbot installs to wrapper-backed routing,
-- generating a reproducible replica layout,
-- preparing safe push to a private GitHub repository.
+Architecture-first repository for the TwinMind wrapper and split routing logic used by Clawdbot.
 
-This kit is intentionally separate from live runtime paths.
+## Architecture First
+Start here:
+- [docs/00-start-here.md](./docs/00-start-here.md)
 
-## Layout
-- `docs/` complete operator + developer documentation
-- `vendor/` vendored wrapper scripts
-- `scripts/` migration/bootstrap/github tooling
-- `templates/` patch/env templates
-- `manifests/` schema and generated migration manifests
-- `analysis/` code mapping artifacts and line references
+Core runtime files:
+- [vendor/twinmind_orchestrator.py](./vendor/twinmind_orchestrator.py)
+- [vendor/twinmind_memory_sync.py](./vendor/twinmind_memory_sync.py)
+- [vendor/twinmind_memory_query.py](./vendor/twinmind_memory_query.py)
+
+## Primary Runtime Topology
+```mermaid
+flowchart LR
+    A[Clawdbot] --> B[Wrapper: twinmind_orchestrator.py]
+    B --> C{Conversation or Tool Bridge}
+    C -->|conversation| D[TwinMind SSE]
+    C -->|tool_bridge + legacy| E[Bridge Loop]
+    C -->|tool_bridge + strict_split| F[Planner -> Executor -> Finalizer]
+    E --> G[User Response]
+    D --> G
+    F --> G
+```
+
+## Repository Focus
+1. Explain split logic and wrapper behavior in depth
+2. Provide deterministic migration and rollback scripts
+3. Provide reproducible bootstrap for similar installations
+4. Provide safe private GitHub push workflow without committing credentials
+
+## Documentation Map
+Architecture and logic (recommended first):
+- [docs/00-start-here.md](./docs/00-start-here.md)
+- [docs/01-overview.md](./docs/01-overview.md)
+- [docs/02-wrapper-architecture.md](./docs/02-wrapper-architecture.md)
+- [docs/03-split-routing.md](./docs/03-split-routing.md)
+- [docs/04-config-reference.md](./docs/04-config-reference.md)
+
+Scripts and operations:
+- [docs/09-script-reference.md](./docs/09-script-reference.md)
+- [docs/05-migration-guide.md](./docs/05-migration-guide.md)
+- [docs/06-operations-runbook.md](./docs/06-operations-runbook.md)
+- [docs/08-rollback.md](./docs/08-rollback.md)
+- [docs/07-troubleshooting.md](./docs/07-troubleshooting.md)
+
+## Scripts
+- [scripts/convert_clawdbot_to_split.sh](./scripts/convert_clawdbot_to_split.sh)
+- [scripts/bootstrap_clawdbot_replica.sh](./scripts/bootstrap_clawdbot_replica.sh)
+- [scripts/create_private_github_repo.sh](./scripts/create_private_github_repo.sh)
+- [scripts/safe_push.sh](./scripts/safe_push.sh)
+- [scripts/init_private_repo_and_push.sh](./scripts/init_private_repo_and_push.sh)
 
 ## Safety Rules
 - No script auto-runs migration.
@@ -22,101 +58,27 @@ This kit is intentionally separate from live runtime paths.
 - Never commit real credentials.
 - Use `scripts/safe_push.sh` before every push.
 
-## Quick Start
-
-### 1) Review and plan migration
+## Quick Commands
+Plan migration:
 ```bash
-/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
-  --mode plan \
-  --config /root/.clawdbot/clawdbot.json
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode plan --config /root/.clawdbot/clawdbot.json
 ```
 
-### 2) Apply migration (manual)
+Replica dry-run:
 ```bash
-/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
-  --mode apply \
-  --yes \
-  --config /root/.clawdbot/clawdbot.json
+/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh --mode plan --target-root /root/.clawdbot-replica
 ```
 
-### 3) Rollback by migration id
+Private repo create + safe push dry-run:
 ```bash
-/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
-  --mode rollback \
-  --migration-id <migration-id> \
-  --yes
-```
-
-### 4) Build a reproducible replica layout
-```bash
-/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
-  --mode plan \
-  --target-root /root/.clawdbot-replica
-```
-
-```bash
-/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
-  --mode apply \
-  --target-root /root/.clawdbot-replica \
-  --yes
-```
-
-## Private GitHub Repository Workflow
-
-### Create private repository
-If `gh` is installed and authenticated:
-```bash
-/root/twinmind-split-kit/scripts/create_private_github_repo.sh \
-  --owner <your-github-user> \
-  --repo clawdbot-twinmind-split-kit \
-  --visibility private
-```
-
-If `gh` is not available, set token in environment and use API fallback:
-```bash
-export GITHUB_TOKEN=__YOUR_TOKEN__
-/root/twinmind-split-kit/scripts/create_private_github_repo.sh \
-  --owner <your-github-user> \
-  --repo clawdbot-twinmind-split-kit \
-  --visibility private \
-  --owner-type user
-```
-
-### Safe push
-```bash
-cd /root/twinmind-split-kit
-git init
-git add .
-git commit -m "Initial twinmind split kit"
-/root/twinmind-split-kit/scripts/safe_push.sh \
-  --remote git@github.com:<your-github-user>/clawdbot-twinmind-split-kit.git \
-  --branch main
-```
-
-## Documentation Index
-- `docs/01-overview.md`
-- `docs/02-wrapper-architecture.md`
-- `docs/03-split-routing.md`
-- `docs/04-config-reference.md`
-- `docs/05-migration-guide.md`
-- `docs/06-operations-runbook.md`
-- `docs/07-troubleshooting.md`
-- `docs/08-rollback.md`
-- `docs/09-script-reference.md`
-
-## Provenance
-See `vendor/PROVENANCE.md` for source paths and checksums of vendored scripts.
-
-### One-shot dry-run helper
-```bash
-/root/twinmind-split-kit/scripts/init_private_repo_and_push.sh \
-  --owner <your-github-user> \
-  --repo clawdbot-twinmind-split-kit \
-  --dry-run 1
+/root/twinmind-split-kit/scripts/init_private_repo_and_push.sh --owner <your-github-user> --repo clawdbot-twinmind-split-kit --dry-run 1
 ```
 
 ## Required Runtime Secrets
 - `TWINMIND_REFRESH_TOKEN`
 - `TWINMIND_FIREBASE_API_KEY`
 
-Set them in your runtime `.env` (never commit this file).
+Set them in runtime `.env` only (never commit this file).
+
+## Provenance
+- [vendor/PROVENANCE.md](./vendor/PROVENANCE.md)

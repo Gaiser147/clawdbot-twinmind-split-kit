@@ -1,59 +1,63 @@
 # Wrapper Architecture
 
+Back: [Overview](./01-overview.md) | Forward: [Split Routing](./03-split-routing.md)
+
 ## Main executable
 - `vendor/twinmind_orchestrator.py`
 
 ## Runtime phases
-1. Bootstrap
-   - load environment overlays
-   - parse CLI flags
-   - derive stable session identity
-2. Pre-routing normalization
-   - sanitize inbound transport wrappers
-   - optional media/PDF preprocessing
-   - dynamic memory context load
-3. Router selection
-   - fastpaths (heartbeat/image/cron/local skills)
-   - conversation or bridge path
-4. Execution core
-   - conversation path: TwinMind SSE call + fallback handling
-   - bridge path: protocol-driven tool loop
-5. Finalization and emit
-   - optional finalizer in split mode
-   - output in text or json envelope
+1. Bootstrap (env + args + session)
+2. Input normalization (sanitization, optional preprocess)
+3. Router decision (fastpath vs conversation vs bridge)
+4. Execution path (TwinMind SSE or protocol loop)
+5. Finalization + emit (`text` or `json`)
 
-## Internal subsystems
+## Internal Subsystems
 
-### Session and locking
-- lock file prevents overlapping run collisions
-- session id persists conversational continuity
+### Session and lock subsystem
+- single-run lock to avoid overlapping tool execution
+- session continuity per derived user key
 
-### Protocol subsystem (bridge mode)
+### Protocol subsystem
 - tool catalog generation
 - strict protocol prompt generation
-- parser normalizes variants into canonical actions
-- repair prompt cycle when malformed outputs are detected
+- parser + normalization
+- bounded repair loop
 
 ### Tool subsystem
-- read-only utilities (web/search/read file)
-- skill dispatch (`skill_run`) for curated operations
-- shell path with policy checks and write restrictions
+- curated `skill_run` actions
+- restricted shell path (`allow_shell`/`allow_writes`)
+- structured tool result forwarding
 
 ### Split subsystem (`strict_split`)
-- optional TwinMind planner creates compact task brief
-- external executor performs deterministic protocol steps
-- TwinMind finalizer composes user-facing answer
+- optional planner brief from TwinMind
+- executor performs deterministic loop
+- final user response created by TwinMind finalizer
 
-### Reliability and degradation
-- retry on transient HTTP failures
-- controlled fallback messages when protocol/executor fails
-- avoid fatal non-zero exits in JSON backend mode
+## Architecture Diagram
+```mermaid
+flowchart TB
+    A[CLI args + env] --> B[Wrapper bootstrap]
+    B --> C[Router]
+    C -->|conversation| D[TwinMind API SSE]
+    C -->|tool_bridge| E[Protocol Engine]
+    E --> F[Tool Catalog]
+    E --> G[Protocol Parser/Repair]
+    G --> H[execute_tool]
+    H --> E
+    E --> I{strict_split?}
+    I -->|no| J[Direct bridge final]
+    I -->|yes| K[TwinMind Finalizer]
+    D --> L[emit_and_exit]
+    J --> L
+    K --> L
+```
 
-## File and state surfaces
-- logs under wrapper state directory
-- sessions mapping file
-- lock file
-- memory cache files for TwinMind memory index/query
+## Reference anchors
+- CLI and route flags: see `analysis/line_refs.txt`
+- parser loop and executor branch: see `analysis/line_refs.txt`
+- final emit paths: see `analysis/line_refs.txt`
 
-## Source references
-See `analysis/line_refs.txt` for direct anchors to critical methods and route decisions.
+Next:
+- [Split Routing Logic](./03-split-routing.md)
+- [Config Reference](./04-config-reference.md)
