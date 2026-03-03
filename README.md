@@ -25,6 +25,61 @@ Merksatz:
 - `legacy bridge` = kompatibler Ein-Brücken-Flow.
 - `strict_split` = klar getrennte Rollen (Planner -> Executor -> Finalizer).
 
+<details>
+<summary><strong>Was ist die Legacy Bridge genau, wann wird sie gewählt, und warum?</strong></summary>
+
+Die `legacy bridge` ist der kompatible Bridge-Modus im `tool_bridge`, bei dem kein harter Planner/Executor-Split erzwungen wird.  
+Sie wird genutzt, wenn ein stabiler Brücken-Flow ohne zusätzliche Split-Komplexität sinnvoll ist.
+
+**Warum wird sie gewählt?**
+- wenn ein durchgängiger Ein-Brücken-Flow genügt
+- wenn Kompatibilität und einfacher Ablauf wichtiger sind als strikte Rollentrennung
+
+**Beispiel (realistische Anfrage):**
+- Nutzer: „Zeig mir bitte meine aktuellen Sharezone-Hausaufgaben.“
+- Route: `tool_bridge` + `legacy`
+- Ablauf: Bridge erstellt Tool-Aufruf, verarbeitet Tool-Resultat und liefert direkt die Antwort.
+
+</details>
+
+<details>
+<summary><strong>Was sind Fastpaths und wer entscheidet, ob ein Fastpath genutzt wird?</strong></summary>
+
+Fastpaths sind deterministische Kurzrouten im Wrapper. Sie umgehen den normalen Modell-/Bridge-Ablauf für klar erkennbare Spezialfälle.
+
+**Wer entscheidet das?**
+- Der Wrapper über feste Matcher/Regeln im Routing-Code.
+- Nicht der Nutzer direkt, sondern die erkannte Anfrageform.
+
+**Beispiele (realistische Anfragen):**
+- „[cron] Run Schulcloud daily“ -> direkter Cron-Fastpath
+- „HEARTBEAT Status?“ -> direkter Heartbeat-Fastpath
+- klarer lokaler Spezialfall -> deterministische Skill-Route
+
+**Nutzen:**
+- weniger Latenz
+- weniger unnötige Modellaufrufe
+- stabileres Verhalten bei standardisierten Tasks
+
+</details>
+
+<details>
+<summary><strong>Wie funktioniert das Tool-Protokoll (`tool_call` / `final`) praktisch?</strong></summary>
+
+Im `tool_bridge` erwartet der Wrapper strukturierte Antworten:
+- `tool_call`: führe ein Tool mit Args aus
+- `final`: gib die Endantwort zurück
+
+Wenn das Modell ein ungültiges Format liefert, startet der Wrapper einen begrenzten Repair-Loop.
+
+**Beispiel (realistische Anfrage):**
+- Nutzer: „Finde meine letzten TwinMind-Memories zu Mathe und fasse sie kurz zusammen.“
+- Schritt 1: Modell gibt `tool_call` für Memory-Suche aus
+- Schritt 2: Wrapper führt Tool aus und sendet Ergebnis zurück
+- Schritt 3: Modell gibt `final` mit Zusammenfassung aus
+
+</details>
+
 ## Architektur auf einen Blick
 ```mermaid
 flowchart LR

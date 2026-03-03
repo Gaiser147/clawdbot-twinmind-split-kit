@@ -16,6 +16,43 @@ Diese Seite erklärt die Kernidee ohne tiefe Interna.
 - `legacy bridge`: Ein-Brücken-Flow ohne harte Rollenaufteilung.
 - `strict_split`: TwinMind plant/finalisiert, Executor führt aus.
 
+<details>
+<summary><strong>Legacy vs strict_split: Wann nehme ich was?</strong></summary>
+
+**Nimm `legacy bridge`, wenn:**
+- du einen kompatiblen, durchgängigen Bridge-Flow willst
+- keine strikte Trennung von Planner und Executor brauchst
+
+**Nimm `strict_split`, wenn:**
+- du klare Rollen willst (Planner -> Executor -> Finalizer)
+- Tool-Ausführung und Antwort-Finalisierung sauber getrennt sein sollen
+
+**Beispiel 1 (legacy):**
+- Anfrage: „Zeig mir meine offenen Hausaufgaben.“
+- Ziel: schnelle kompatible Bridge-Antwort
+
+**Beispiel 2 (strict_split):**
+- Anfrage: „Suche relevante Memories, nutze mehrere Tools und gib mir eine saubere Endzusammenfassung.“
+- Ziel: kontrollierte, mehrstufige Ausführung mit klarer Rollenlogik
+
+</details>
+
+<details>
+<summary><strong>Fastpath in der Praxis: Was passiert konkret?</strong></summary>
+
+Fastpaths sind kurze deterministische Routen für gut erkennbare Spezialfälle.
+
+**Beispiel:**
+- Anfrage: „[cron] Run Schulcloud daily“
+- Ergebnis: Wrapper springt direkt in den passenden Fastpath, statt den normalen Bridge-Loop zu starten.
+
+**Warum wichtig?**
+- reduziert Komplexität bei Standardaufgaben
+- stabilisiert bekannte Abläufe
+- spart unnötige Modellrunden
+
+</details>
+
 ## Einfaches Bild
 ```mermaid
 flowchart TD

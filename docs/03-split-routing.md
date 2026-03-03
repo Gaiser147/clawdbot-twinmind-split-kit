@@ -41,11 +41,45 @@ Grenzen:
 - Weniger klare Rollentrennung als `strict_split`.
 - Debugging und Zuständigkeiten sind weniger strikt segmentiert.
 
+<details>
+<summary><strong>Legacy Bridge Deep Dive mit Beispiel</strong></summary>
+
+Die Legacy Bridge führt Planung, Tool-Aufruf und Antwort in einem kompatiblen Brückenpfad zusammen.
+
+**Typischer Ablauf:**
+1. Anfrage wird als `tool_bridge` erkannt.
+2. Modell erzeugt Tool-Aufruf(e).
+3. Wrapper führt Tool(s) aus.
+4. Antwort wird im gleichen Brücken-Flow finalisiert.
+
+**Realistisches Beispiel:**
+- Anfrage: „Hol mir meine Sharezone-Hausaufgaben und sag kurz, was dringend ist.“
+- Route: `twinmind_tool_bridge` mit `routing_mode=legacy`
+- Ergebnis: Ein zusammenhängender Bridge-Lauf ohne separate Planner/Finalizer-Stufe.
+
+</details>
+
 ## Was ist strict_split?
 `strict_split` trennt Rollen klar:
 1. TwinMind Planner (optional Brief)
 2. Externer Executor (deterministische Tool-Protokollschritte)
 3. TwinMind Finalizer (nutzerfreundliche Endantwort)
+
+<details>
+<summary><strong>Fastpaths: Wer entscheidet das und was bedeutet es für Routing?</strong></summary>
+
+Fastpaths werden vom Wrapper über Regeln/Matcher entschieden, nicht manuell vom Nutzer.
+
+**Heißt konkret:**
+- Anfrage passt auf ein bekanntes deterministisches Muster -> direkter Fastpath
+- kein Match -> normaler Conversation/Bridge-Entscheidungsbaum
+
+**Realistisches Beispiel:**
+- Anfrage: „HEARTBEAT status“
+- Entscheidung: direkter Fastpath
+- Wirkung: kein normaler Bridge-Loop nötig
+
+</details>
 
 ## Vergleich Legacy vs strict_split
 ```mermaid
@@ -56,6 +90,24 @@ flowchart LR
     D --> E[Executor loop]
     E --> F[Finalizer]
 ```
+
+<details>
+<summary><strong>Tool-Protokoll Deep Dive (`tool_call`, `final`, Repair) mit Beispiel</strong></summary>
+
+Im Bridge-Pfad erwartet der Wrapper strukturierte Aktionen:
+- `tool_call`: Tool ausführen
+- `final`: finale Nutzerantwort
+
+Bei ungültigem Ausgabeformat läuft ein begrenzter Repair-Mechanismus, damit der Prozess stabil bleibt.
+
+**Realistisches Beispiel:**
+- Anfrage: „Suche meine Mathe-Memories und gib mir 3 Kernpunkte.“
+- Schritt 1: Executor liefert `tool_call` für Memory-Suche
+- Schritt 2: Wrapper führt Tool aus und liefert TOOL_RESULT zurück
+- Schritt 3: Executor liefert `final`
+- Wenn Schritt 1/3 formal ungültig ist: Repair-Prompt greift (begrenzt)
+
+</details>
 
 ## Guardrails
 - Step-Limits
