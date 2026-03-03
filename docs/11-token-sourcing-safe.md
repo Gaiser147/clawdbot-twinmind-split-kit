@@ -23,6 +23,26 @@ Diese Seite beschreibt, wie du benoetigte Runtime-Secrets fuer **deinen eigenen 
 |---|---|
 | `ORCH_EXECUTOR_API_KEY` | API-Key fuer HTTP/OpenAI-kompatible Executor |
 | `OPENAI_API_KEY` | Alternative Key-Quelle fuer `openai`-artige Provider |
+| `ORCH_EXECUTOR_CODEX_PROFILE` | Optionales Codex Auth-Profil fuer OAuth-Fallback im HTTP-Pfad |
+
+Wichtig:
+- Beim Defaultprofil `ORCH_EXECUTOR_PROVIDER=codex_cli` wird kein statischer API-Key benoetigt.
+- Die Auth kommt dort aus der lokalen Codex-CLI-OAuth-Session.
+
+## TwinMind Token-Quelle: Browser Extension + DevTools
+
+Offizielle Chrome Extension:
+- `https://chromewebstore.google.com/detail/twinmind-chat-with-tabs-m/agpbjhhcmoanaljagpoheldgjhclepdj`
+
+Vorgehen (nur eigener Account, eigene Session):
+1. TwinMind Extension installieren und mit deinem eigenen Konto anmelden.
+2. Browser DevTools oeffnen und die Extension-Requests beobachten.
+3. In den Auth-bezogenen Requests den Refresh-Token und den zugehoerigen Firebase API Key identifizieren.
+4. Werte nur lokal in deine Runtime `.env` uebernehmen.
+5. Danach Tokens nicht weitergeben und bei Leak-Verdacht sofort rotieren.
+
+Hinweis:
+- Gleiches Prinzip gilt fuer Firefox-Extension-Workflows: eigene Session + DevTools + lokale `.env` Uebernahme.
 
 ## High-Level Beschaffung (eigene Session)
 1. In deinem Browser mit deinem eigenen TwinMind-Account anmelden.
@@ -57,6 +77,9 @@ ORCH_EXECUTOR_PROVIDER=openai
 ORCH_EXECUTOR_MODEL=<set-locally>
 ORCH_EXECUTOR_BASE_URL=<set-locally>
 ORCH_EXECUTOR_API_KEY=<set-locally>
+
+# optional: if OAuth fallback should use a specific Codex profile
+ORCH_EXECUTOR_CODEX_PROFILE=openai-codex:codex-cli
 ```
 
 ## Sicherheits-Checkliste

@@ -43,6 +43,7 @@ ORCH_EXECUTOR_MODEL=gpt-5.3-codex
 Hinweise:
 - benoetigt lokale `codex` CLI und Auth.
 - `ORCH_EXECUTOR_BASE_URL`/`ORCH_EXECUTOR_API_KEY` werden in diesem Profil nicht benoetigt.
+- fuer `gpt-5.3-codex` im Default-Split-Pfad wird die Codex-CLI-OAuth-Session genutzt.
 
 ### Profil B: OpenAI-kompatibler HTTP-Executor (z. B. Gemini-kompatibles Endpoint)
 
@@ -61,11 +62,12 @@ Hinweise:
 <summary><strong>Wer gewinnt bei Key-Konflikten?</strong></summary>
 
 Bei `openai`-artigen Providern wird in dieser Reihenfolge aufgeloest:
-1. expliziter `--executor-api-key` / `ORCH_EXECUTOR_API_KEY`
+1. expliziter `--executor-api-key` (oder daraus aufgeloester `ORCH_EXECUTOR_API_KEY`)
 2. `OPENAI_API_KEY`
-3. Codex OAuth aus lokalem Auth-Profil
+3. `ORCH_EXECUTOR_API_KEY` (env)
+4. Codex OAuth aus lokalem Auth-Profil
 
-Fuer andere HTTP-Provider wird primär `ORCH_EXECUTOR_API_KEY` verwendet.
+Bei `codex_cli` wird nicht ueber HTTP-Key aufgeloest, sondern lokal ueber die Codex-CLI-Auth ausgefuehrt.
 
 </details>
 

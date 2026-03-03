@@ -32,6 +32,12 @@ ORCH_EXECUTOR_MODEL=gpt-5.3-codex
 - `codex` CLI ist installiert und im `PATH`.
 - Codex Auth ist aktiv.
 - Modellzugriff fuer `ORCH_EXECUTOR_MODEL` ist vorhanden.
+- kein statischer `OPENAI_API_KEY` noetig fuer `codex_cli`.
+
+### Auth-Quelle fuer Codex 5.3 im Split-Pfad
+- Bei `ORCH_EXECUTOR_PROVIDER=codex_cli` nutzt der Wrapper den lokalen `codex exec`-Pfad.
+- Die Auth kommt aus der Codex-CLI-Login-Session (OAuth), nicht aus `ORCH_EXECUTOR_API_KEY`.
+- Empfehlung fuer das Standardprofil `gpt-5.3-codex`: Codex-CLI eingeloggt halten und keine statischen Keys in `.env` erzwingen.
 
 <details>
 <summary><strong>Wann ist Codex die bessere Wahl?</strong></summary>
@@ -58,6 +64,15 @@ ORCH_EXECUTOR_API_KEY=<dein-api-key>
 - Endpoint ist kompatibel zum Chat-Completions-Format.
 - API-Key ist gueltig.
 - Modellname ist auf dem Endpoint verfuegbar.
+
+### Key-Aufloesung im HTTP/OpenAI-kompatiblen Pfad
+Wenn `ORCH_EXECUTOR_PROVIDER` auf `openai`/`openai_codex`/`codex` steht, wird die Auth in dieser Reihenfolge gesucht:
+1. expliziter Executor-Key (`--executor-api-key` / `ORCH_EXECUTOR_API_KEY`)
+2. `OPENAI_API_KEY`
+3. `ORCH_EXECUTOR_API_KEY` aus env (falls nicht schon explizit gesetzt)
+4. Codex-CLI OAuth Access Token aus lokalem Auth-Profil
+
+Damit ist Codex-OAuth auch im HTTP-Pfad moeglich, wenn keine statischen Keys gesetzt sind.
 
 <details>
 <summary><strong>Was bedeutet "OpenAI-kompatibel" in diesem Repo?</strong></summary>

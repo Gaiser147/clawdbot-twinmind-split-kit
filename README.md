@@ -72,6 +72,9 @@ Alternative Modelle sind trotzdem moeglich, indem nach der Migration die bestehe
 | Codex (Default) | `codex_cli` | Lokale Codex-CLI-Ausfuehrung im `strict_split`-Executor |
 | OpenAI-kompatibel (z. B. Gemini-kompatibles Endpoint) | `openai` / `openai_codex` / `codex` | HTTP-Executor ueber `ORCH_EXECUTOR_BASE_URL` + API-Key |
 
+Hinweis fuer Codex 5.3:
+- Im Defaultprofil (`codex_cli`) kommt die Auth aus der lokalen Codex-CLI-OAuth-Session, nicht aus einem statischen API-Key.
+
 <details>
 <summary><strong>Warum bleibt Codex Default, obwohl Gemini moeglich ist?</strong></summary>
 
@@ -185,6 +188,9 @@ Private Repo Push dry-run:
 
 Details zur Beschaffung und sicheren Ablage:
 - [docs/11-token-sourcing-safe.md](./docs/11-token-sourcing-safe.md)
+
+Kurzkontext:
+- Quelle ist typischerweise die eigene TwinMind Browser-Extension-Session (DevTools), z. B. `https://chromewebstore.google.com/detail/twinmind-chat-with-tabs-m/agpbjhhcmoanaljagpoheldgjhclepdj`.
 
 ## Provenance
 - [vendor/PROVENANCE.md](./vendor/PROVENANCE.md)

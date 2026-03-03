@@ -54,6 +54,14 @@ Fix:
 2. validate `ORCH_EXECUTOR_API_KEY` / `OPENAI_API_KEY`,
 3. ensure endpoint accepts your key scope.
 
+## Codex OAuth fallback expected, but auth still missing
+Cause: no valid local Codex auth profile for OAuth fallback.
+Fix:
+1. run Codex CLI login on the same machine/user as wrapper runtime,
+2. optionally set `ORCH_EXECUTOR_CODEX_PROFILE` to the intended profile name,
+3. remove conflicting invalid API-key values in `.env`,
+4. retry and inspect executor auth error in logs.
+
 ## strict_split HTTP executor returns 404/5xx
 Cause: wrong `ORCH_EXECUTOR_BASE_URL` or upstream outage.
 Fix:
