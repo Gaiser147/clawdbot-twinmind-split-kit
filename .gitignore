@@ -1,0 +1,30 @@
+# Runtime and local state
+.env
+.env.*
+*.env
+.clawdbot/
+backups/
+reports/
+
+# Credentials and keys
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.token
+auth-profiles.json
+
+# Logs and traces
+*.log
+*.jsonl
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

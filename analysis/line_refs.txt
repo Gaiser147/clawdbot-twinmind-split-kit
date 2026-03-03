@@ -1,0 +1,80 @@
+1303:def parse_protocol_output(raw: str) -> Tuple[Optional[Dict[str, Any]], str]:
+1368:def build_tool_catalog(allow_shell: bool) -> List[Dict[str, Any]]:
+1437:def build_protocol_prompt(tool_catalog: List[Dict[str, Any]], allow_writes: bool) -> str:
+1680:def tool_skill_run(args: Dict[str, Any], allow_writes: bool, tool_timeout_sec: int) -> Dict[str, Any]:
+1937:def execute_tool(tool: str, args: Dict[str, Any], allow_writes: bool, tool_timeout_sec: int) -> Dict[str, Any]:
+1957:                result = tool_skill_run(rewritten, allow_writes=allow_writes, tool_timeout_sec=tool_timeout_sec)
+1969:        return tool_skill_run(args, allow_writes=allow_writes, tool_timeout_sec=tool_timeout_sec)
+2017:def call_twinmind(
+2088:def call_twinmind_with_refresh(
+2098:    raw, events, status, err = call_twinmind(cfg, id_token, session_id, query, current_context, log_path)
+2105:        raw, events, status, err = call_twinmind(cfg, new_id_token, session_id, query, current_context, log_path)
+2242:def call_executor(
+2489:def main() -> None:
+2520:        "--routing-mode",
+2521:        choices=["legacy", "strict_split"],
+2522:        default=getenv("ORCH_ROUTING_MODE", "strict_split") or "strict_split",
+2523:        help="legacy=single-model bridge, strict_split=TwinMind planner/finalizer + external executor.",
+2576:    def emit_and_exit(
+2616:        emit_and_exit(message, code=0, ingest_memory=False, memory_route="heartbeat_fastpath")
+2631:        emit_and_exit(message, code=0, ingest_memory=False, memory_route="image_fastpath")
+2638:        emit_and_exit(stripped_query, code=0, ingest_memory=False, memory_route="reminder_cron_passthrough")
+2648:            emit_and_exit(f"Busy: {e}", code=4, ingest_memory=False, memory_route="schulcloud_cron_fastpath")
+2650:            result = tool_skill_run(
+2656:            emit_and_exit(out, code=0, ingest_memory=False, memory_route="schulcloud_cron_fastpath")
+2691:    strict_split = cfg.routing_mode == "strict_split"
+2696:    if (not strict_split) and re.search(r"\b(vertretungsplan|vertretung)\b", user_query, re.I):
+2709:        result = tool_skill_run({"skill": skill, "args": sargs}, allow_writes=cfg.allow_writes, tool_timeout_sec=cfg.tool_timeout_sec)
+2711:        emit_and_exit(out, code=0, session_id=run_session_id, memory_route="schulcloud_skill_fastpath")
+2715:    if (not strict_split) and parsed:
+2722:        result = tool_skill_run({"skill": "remind_me.set", "args": sargs}, allow_writes=True, tool_timeout_sec=cfg.tool_timeout_sec)
+2724:        emit_and_exit(out, code=0, session_id=run_session_id, memory_route="reminder_fastpath")
+2727:    if (not strict_split) and sharezone_route:
+2730:        result = tool_skill_run({"skill": skill, "args": sargs}, allow_writes=cfg.allow_writes, tool_timeout_sec=cfg.tool_timeout_sec)
+2732:        emit_and_exit(out, code=0, session_id=run_session_id, memory_route="sharezone_fastpath")
+2735:    if (not strict_split) and memory_route:
+2738:        result = tool_skill_run({"skill": skill, "args": sargs}, allow_writes=cfg.allow_writes, tool_timeout_sec=cfg.tool_timeout_sec)
+2740:        emit_and_exit(out, code=0, session_id=run_session_id, memory_route="twinmind_memory_fastpath")
+2744:    if strict_split and should_force_tool_for_request(sanitized_query):
+2770:            emit_and_exit("Error: Missing TWINMIND_REFRESH_TOKEN", code=2, memory_route="twinmind_conversation")
+2774:            emit_and_exit(f"Busy: {e}", code=4, memory_route="twinmind_conversation")
+2802:            raw, events, status, err = call_twinmind(cfg, id_token, session_id, clean_query, current_context, log_path)
+2805:                raw, events, status, err = call_twinmind(cfg, id_token, session_id, clean_query, current_context, log_path)
+2809:                emit_and_exit(f"TwinMind API error: {status} {err}", code=2, session_id=session_id, memory_route="twinmind_conversation")
+2825:                raw2, _, status2, err2 = call_twinmind(fb_cfg, id_token, session_id, clean_query, current_context, log_path)
+2857:                    result = tool_skill_run({"skill": skill, "args": sargs}, allow_writes=cfg.allow_writes, tool_timeout_sec=cfg.tool_timeout_sec)
+2860:            emit_and_exit(answer, code=0, session_id=session_id, memory_route="twinmind_conversation")
+2868:        emit_and_exit("Error: Missing TWINMIND_REFRESH_TOKEN", code=2, memory_route="tool_bridge")
+2874:            "route": ("split_executor_bridge" if strict_split else "twinmind_tool_bridge"),
+2886:        emit_and_exit(f"Busy: {e}", code=4, memory_route="tool_bridge")
+2890:    tool_catalog = build_tool_catalog(allow_shell=cfg.allow_shell)
+2891:    protocol = build_protocol_prompt(tool_catalog, allow_writes=cfg.allow_writes)
+2986:            rawf, _, statusf, errf, id_token = call_twinmind_with_refresh(
+3022:        if strict_split and cfg.executor_use_twinmind_planner:
+3037:            rawp, _, statusp, errp, id_token = call_twinmind_with_refresh(
+3062:        max_steps = cfg.executor_max_steps if strict_split else cfg.max_steps
+3063:        max_tool_calls = cfg.executor_max_tool_calls if strict_split else cfg.max_tool_calls
+3086:            if strict_split:
+3087:                raw, events, status, err = call_executor(cfg, session_id, query, current_context, log_path)
+3090:                raw, events, status, err, id_token = call_twinmind_with_refresh(
+3103:                if strict_split:
+3110:                    emit_and_exit(answer, code=0, session_id=session_id, memory_route="split_executor_bridge")
+3112:                emit_and_exit(f"TwinMind API error: {status} {err}", code=2, session_id=session_id, memory_route="twinmind_tool_bridge")
+3114:            obj, perr = parse_protocol_output(raw)
+3124:                if strict_split:
+3130:                    emit_and_exit(answer, code=0, session_id=session_id, memory_route="split_executor_bridge")
+3133:                emit_and_exit(answer, code=0, session_id=session_id, memory_route="twinmind_tool_bridge")
+3150:                if strict_split:
+3152:                emit_and_exit(
+3156:                    memory_route=("split_executor_bridge" if strict_split else "twinmind_tool_bridge"),
+3163:                    if strict_split:
+3169:                        emit_and_exit(answer, code=0, session_id=session_id, memory_route="split_executor_bridge")
+3170:                    emit_and_exit("Tool-call limit reached; aborting.", code=3, session_id=session_id, memory_route="twinmind_tool_bridge")
+3191:                result = execute_tool(tool, targs, allow_writes=cfg.allow_writes, tool_timeout_sec=cfg.tool_timeout_sec)
+3217:                if strict_split and tool == "skill_run":
+3244:                        emit_and_exit(answer, code=0, session_id=session_id, memory_route="split_executor_bridge")
+3250:                if (not strict_split) and tool == "skill_run":
+3260:                    emit_and_exit(out, code=0, session_id=session_id, memory_route="twinmind_tool_bridge")
+3266:        if strict_split:
+3272:            emit_and_exit(answer, code=0, session_id=session_id, memory_route="split_executor_bridge")
+3273:        emit_and_exit("Step limit reached; aborting.", code=3, session_id=session_id, memory_route="twinmind_tool_bridge")

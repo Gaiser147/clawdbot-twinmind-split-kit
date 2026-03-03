@@ -1,0 +1,32 @@
+{
+  "description": "Declarative patch template for clawdbot.json split+wrapper migration",
+  "target_paths": {
+    "agents.defaults.model.primary": "twinmind-cli/default",
+    "agents.defaults.models.twinmind-cli/default": {
+      "alias": "tm"
+    },
+    "agents.defaults.cliBackends.twinmind-cli": {
+      "command": "python3",
+      "args": [
+        "<KIT_ROOT>/vendor/twinmind_orchestrator.py",
+        "--mode", "conversation",
+        "--routing-mode", "strict_split",
+        "--search-web", "1",
+        "--search-memories", "1",
+        "--allow-shell", "0",
+        "--allow-writes", "0",
+        "--output", "json"
+      ],
+      "output": "json",
+      "input": "arg",
+      "sessionArg": "--session-id",
+      "sessionMode": "always",
+      "serialize": true
+    }
+  },
+  "merge_rules": {
+    "create_missing_objects": true,
+    "preserve_unrelated_keys": true,
+    "idempotent": true
+  }
+}

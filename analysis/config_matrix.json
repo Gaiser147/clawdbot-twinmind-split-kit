@@ -1,0 +1,35 @@
+{
+  "required_env": [
+    "TWINMIND_REFRESH_TOKEN",
+    "TWINMIND_FIREBASE_API_KEY"
+  ],
+  "optional_env": [
+    "TWINMIND_API_BASE",
+    "TWINMIND_API_ENDPOINT",
+    "TWINMIND_VERCEL_BYPASS",
+    "TWINMIND_USER_AGENT",
+    "TWINMIND_MODE",
+    "TWINMIND_SEARCH_WEB",
+    "TWINMIND_SEARCH_MEMORIES",
+    "TWINMIND_ALLOW_SHELL",
+    "TWINMIND_ALLOW_WRITES",
+    "ORCH_ROUTING_MODE",
+    "ORCH_EXECUTOR_PROVIDER",
+    "ORCH_EXECUTOR_MODEL",
+    "ORCH_EXECUTOR_BASE_URL",
+    "ORCH_EXECUTOR_API_KEY",
+    "ORCH_EXECUTOR_MAX_STEPS",
+    "ORCH_EXECUTOR_MAX_TOOL_CALLS",
+    "ORCH_EXECUTOR_USE_TWINMIND_PLANNER"
+  ],
+  "clawdbot_config_paths": [
+    "agents.defaults.model.primary",
+    "agents.defaults.models.twinmind-cli/default",
+    "agents.defaults.cliBackends.twinmind-cli"
+  ],
+  "outputs": [
+    "stdout text",
+    "stdout json",
+    "state lock/log/session files under .clawdbot"
+  ]
+}
