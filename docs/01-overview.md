@@ -44,3 +44,5 @@ Nächste Schritte:
 - [Wrapper Architecture](./02-wrapper-architecture.md)
 - [Split Routing Logic](./03-split-routing.md)
 - [Config Reference](./04-config-reference.md)
+- [Model Profiles and Credentials](./10-model-profiles-and-credentials.md)
+- [Token Sourcing (Safe)](./11-token-sourcing-safe.md)

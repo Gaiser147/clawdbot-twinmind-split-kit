@@ -10,7 +10,13 @@ Purpose: migrate existing `~/.clawdbot/clawdbot.json` to TwinMind wrapper backen
 
 ### Important flags
 - `--patch-env`: append non-secret defaults from template.
-- `--force-split-default`: set backend runtime mode to tool bridge by default.
+- `--force-split-default`: set backend args to `--mode tool_bridge` by default.
+
+### Current default patch behavior
+- sets `--routing-mode strict_split`
+- sets `--executor-provider codex_cli`
+- sets `--executor-model gpt-5.3-codex`
+- keeps backend mode default at `conversation` unless `--force-split-default` is used
 
 ## `scripts/bootstrap_clawdbot_replica.sh`
 Purpose: generate a reproducible local replica structure with vendored wrapper scripts and placeholder config.
@@ -18,6 +24,9 @@ Purpose: generate a reproducible local replica structure with vendored wrapper s
 ### Modes
 - `plan`: emits planned actions report.
 - `apply`: writes files under `--target-root`.
+
+### Current default profile
+- replica config/env defaults target Codex executor profile (`codex_cli` + `gpt-5.3-codex`).
 
 ## `scripts/create_private_github_repo.sh`
 Purpose: create private GitHub repo safely.
@@ -38,3 +47,13 @@ Purpose: one-shot orchestrator for repo creation + local git init/commit + safe 
 
 ### Default
 - dry-run enabled by default.
+
+## Limitations and operator responsibilities
+- Scripts do not auto-install runtime dependencies.
+- Scripts currently do not parameterize provider/model during patching.
+- Alternative model profiles are configured manually after migration.
+
+See:
+- [04-config-reference.md](./04-config-reference.md)
+- [05-migration-guide.md](./05-migration-guide.md)
+- [10-model-profiles-and-credentials.md](./10-model-profiles-and-credentials.md)
