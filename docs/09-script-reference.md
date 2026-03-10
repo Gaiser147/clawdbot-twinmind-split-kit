@@ -1,7 +1,7 @@
 # Script Reference
 
 ## `scripts/convert_clawdbot_to_split.sh`
-Purpose: migrate existing `~/.clawdbot/clawdbot.json` to TwinMind wrapper backend.
+Purpose: migrate an existing Clawdbot/OpenClaw config to the TwinMind wrapper backend.
 
 ### Modes
 - `plan`: no target mutation, writes patch report.
@@ -9,6 +9,7 @@ Purpose: migrate existing `~/.clawdbot/clawdbot.json` to TwinMind wrapper backen
 - `rollback`: restores target from manifest backup.
 
 ### Important flags
+- `--config`: optional; if omitted, the script auto-detects common `clawdbot`/`openclaw` config paths.
 - `--patch-env`: append non-secret defaults from template.
 - `--force-split-default`: set backend args to `--mode tool_bridge` by default.
 

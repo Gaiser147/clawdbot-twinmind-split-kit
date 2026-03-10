@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MODE="plan"
-CONFIG_PATH="/root/.clawdbot/clawdbot.json"
-ENV_PATH="/root/.clawdbot/.env"
+CONFIG_PATH=""
+ENV_PATH=""
 KIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR=""
 REPORT_JSON=""
@@ -11,6 +11,8 @@ MIGRATION_ID=""
 PATCH_ENV=0
 YES=0
 FORCE_SPLIT_DEFAULT=0
+CONFIG_PATH_EXPLICIT=0
+ENV_PATH_EXPLICIT=0
 
 usage() {
   cat <<USAGE
@@ -20,8 +22,8 @@ Modes:
   --mode plan|apply|rollback        Default: plan
 
 Core options:
-  --config <path>                   Default: /root/.clawdbot/clawdbot.json
-  --env <path>                      Default: /root/.clawdbot/.env
+  --config <path>                   Optional; auto-detects clawdbot/openclaw config when omitted
+  --env <path>                      Optional; defaults to sibling .env next to detected config
   --kit-root <path>                 Default: script parent directory
   --backup-dir <path>               Default: <kit-root>/backups
   --report-json <path>              Default: <kit-root>/reports/convert-<ts>.json
@@ -72,6 +74,44 @@ print(d.get(k, ""))
 PY
 }
 
+resolve_config_and_env() {
+  local home_root="${HOME:-/root}"
+  local -a config_candidates=(
+    "$home_root/.clawdbot/clawdbot.json"
+    "$home_root/.openclaw/clawdbot.json"
+    "$home_root/.openclaw/openclaw.json"
+    "$home_root/.config/clawdbot/clawdbot.json"
+    "$home_root/.config/openclaw/clawdbot.json"
+    "$home_root/.config/openclaw/openclaw.json"
+  )
+  local detected_config=""
+  local detected_env=""
+
+  if [[ "$CONFIG_PATH_EXPLICIT" -eq 1 ]]; then
+    detected_config="$CONFIG_PATH"
+  else
+    for candidate in "${config_candidates[@]}"; do
+      if [[ -f "$candidate" ]]; then
+        detected_config="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$detected_config" ]]; then
+    err "Could not auto-detect config. Pass --config explicitly."
+  fi
+
+  if [[ "$ENV_PATH_EXPLICIT" -eq 1 ]]; then
+    detected_env="$ENV_PATH"
+  else
+    detected_env="$(dirname "$detected_config")/.env"
+  fi
+
+  CONFIG_PATH="$detected_config"
+  ENV_PATH="$detected_env"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)
@@ -80,10 +120,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --config)
       CONFIG_PATH="$2"
+      CONFIG_PATH_EXPLICIT=1
       shift 2
       ;;
     --env)
       ENV_PATH="$2"
+      ENV_PATH_EXPLICIT=1
       shift 2
       ;;
     --kit-root)
@@ -131,6 +173,7 @@ esac
 
 need_cmd python3
 need_cmd sha256sum
+resolve_config_and_env
 
 [[ -n "$BACKUP_DIR" ]] || BACKUP_DIR="$KIT_ROOT/backups"
 mkdir -p "$BACKUP_DIR" "$KIT_ROOT/manifests" "$KIT_ROOT/reports"

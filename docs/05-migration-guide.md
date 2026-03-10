@@ -23,16 +23,18 @@ Hinweis:
 ## Plan first
 ```bash
 /root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
-  --mode plan \
-  --config /root/.clawdbot/clawdbot.json
+  --mode plan
 ```
+
+Auto-Detection:
+- Wenn `--config` fehlt, sucht das Skript zuerst in gaengigen `clawdbot`-/`openclaw`-Pfaden, z. B. `~/.clawdbot/clawdbot.json`, `~/.openclaw/clawdbot.json` oder `~/.openclaw/openclaw.json`.
+- Wenn `--env` fehlt, wird standardmaessig die benachbarte `.env` neben der erkannten Config verwendet.
 
 ## Apply
 ```bash
 /root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
   --mode apply \
-  --yes \
-  --config /root/.clawdbot/clawdbot.json
+  --yes
 ```
 
 Optional env default append:

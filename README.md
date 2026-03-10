@@ -117,6 +117,11 @@ flowchart TD
     H -->|strict_split| J[split_executor_bridge]
 ```
 
+## Reminder/Timer Routing Hinweis
+- Reminder/Timer-Intents werden im Wrapper als Tool-Intent behandelt.
+- Dadurch wird bei solchen Anfragen der tool-faehige Pfad erzwungen (`tool_bridge_override` -> `split_executor_bridge`) statt reinem `twinmind_conversation`.
+- Relative Reminder wie `in 10 Minuten` koennen direkt ueber `reminder_fastpath` ausgefuehrt werden.
+
 ## Unterschied zu Standard-Clawdbot
 
 | Bereich | Standard-Clawdbot | Dieses Repo (TwinMind Split Kit) | Wirkung |
@@ -169,8 +174,11 @@ flowchart TD
 ## Schnellbefehle
 Migration planen:
 ```bash
-/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode plan --config /root/.clawdbot/clawdbot.json
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode plan
 ```
+
+Hinweis:
+- Der Converter erkennt beim Weglassen von `--config` jetzt gaengige `clawdbot`- und `openclaw`-Pfade automatisch.
 
 Replica dry-run:
 ```bash
