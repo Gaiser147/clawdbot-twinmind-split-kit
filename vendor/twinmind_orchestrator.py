@@ -83,7 +83,7 @@ TOOL_ACTION_RE = re.compile(
     re.I,
 )
 LIVE_DOMAIN_RE = re.compile(
-    r"\b(sharezone|schulcloud|vertretungsplan|vertretung|hausaufgaben|homework|remind|reminder|erinnerung|news|nachrichten|tech-?news|aktuell|memory|memories|youtube|youtu\.be|video|transkript|untertitel|subtitle|captions)\b",
+    r"\b(sharezone|schulcloud|vertretungsplan|vertretung|hausaufgaben|homework|remind|reminder|erinnerung|erinnere|erinnern|timer|wecker|news|nachrichten|tech-?news|aktuell|memory|memories|youtube|youtu\.be|video|transkript|untertitel|subtitle|captions)\b",
     re.I,
 )
 LOCAL_SYSTEM_RE = re.compile(
@@ -683,6 +683,19 @@ def should_force_tool_for_request(user_query: str) -> bool:
     return bool(LIVE_DOMAIN_RE.search(q))
 
 
+def is_reminder_or_timer_query(user_query: str) -> bool:
+    q = (user_query or "").strip()
+    if not q:
+        return False
+    return bool(
+        re.search(
+            r"\b(remind(?: me)?|reminder|erinner(?:e|n|ung)?|timer|wecker)\b",
+            q,
+            re.I,
+        )
+    )
+
+
 def load_local_profile_text() -> str:
     custom = (getenv("TWINMIND_LOCAL_PROFILE_PATH") or "").strip()
     paths: List[str] = []
@@ -1005,7 +1018,7 @@ def parse_one_time_reminder(user_query: str) -> Optional[Tuple[str, str]]:
     # - "erinnere mich in 5 minuten ..."
     # - "stelle einen reminder in 5min"
     # - "erinnerung in 10min"
-    if not re.search(r"\b(remind me|reminder|erinnere|erinnerung)\b", low):
+    if not re.search(r"\b(remind me|reminder|erinnere|erinnern|erinnerung|timer|wecker)\b", low):
         return None
 
     # Relative: in 20min / in 20 Minuten / in 2 Stunden / in 1h / in 3 days
@@ -3098,7 +3111,7 @@ def main() -> None:
 
     # Fast-path: one-time reminders (relative "in X ...").
     parsed = parse_one_time_reminder(sanitized_query)
-    if (not strict_split) and parsed:
+    if parsed:
         write_log(log_path, {"event": "router_decision", "route": "reminder_fastpath"})
         msg, when = parsed
         origin_target = infer_origin_chat_id() or infer_origin_target_from_request_text(user_query)
@@ -3128,6 +3141,8 @@ def main() -> None:
     refresh_token = getenv("TWINMIND_REFRESH_TOKEN")
     explicit_tool_intent = is_tool_mode_requested(raw_user_query) or is_tool_mode_requested(sanitized_query)
     if strict_split and should_force_tool_for_request(sanitized_query):
+        explicit_tool_intent = True
+    if is_reminder_or_timer_query(sanitized_query):
         explicit_tool_intent = True
 
     conversation_query = sanitized_query

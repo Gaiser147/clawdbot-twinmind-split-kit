@@ -6,6 +6,7 @@ Zurück: [Wrapper Architecture](./02-wrapper-architecture.md) | Weiter: [Config 
 - `--mode`: `conversation` oder `tool_bridge`
 - `--routing-mode`: `legacy` oder `strict_split`
 - erkannter Tool-Intent in der Anfrage
+- erkannter Reminder/Timer-Intent in der Anfrage (`reminder`, `remind`, `erinnerung`, `erinnere`, `erinnern`, `timer`, `wecker`)
 - erkannter Audio-Kontext (`[Audio] ... Transcript`, `<media:audio>`, Audio-Anhang)
 - Fastpath-Matches
 
@@ -13,6 +14,7 @@ Zurück: [Wrapper Architecture](./02-wrapper-architecture.md) | Weiter: [Config 
 - `twinmind_conversation`
 - `twinmind_tool_bridge`
 - `split_executor_bridge`
+- `reminder_fastpath` (direkter `remind_me.set`-Aufruf fuer relative Reminder, z. B. `in 10 minuten`)
 - `audio_stt_unavailable_fastpath` (Audio empfangen, aber kein Transcript/STT verfuegbar)
 - fastpath-spezifische direkte Routen
 
@@ -117,6 +119,11 @@ Bei ungültigem Ausgabeformat läuft ein begrenzter Repair-Mechanismus, damit de
 - Protocol-Repair-Attempts
 - Shell/Write-Policies
 - kontrollierte Fallbacks statt harter Abbrüche
+
+## Reminder/Timer Sonderregel
+- Reminder/Timer-Anfragen werden als expliziter Tool-Intent behandelt, damit sie nicht im reinen `twinmind_conversation`-Pfad landen.
+- Dadurch werden Fehlantworten wie "Reminder/Timer nicht verfuegbar" vermieden.
+- Relative Reminder (`in X Minuten/Stunden/Tagen`) koennen direkt ueber `reminder_fastpath` erstellt werden.
 
 ## Audio Sonderregel
 - Audio-Nachrichten mit vorhandenem Transcript bleiben bevorzugt im `twinmind_conversation`-Pfad.

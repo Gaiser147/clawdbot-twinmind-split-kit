@@ -113,6 +113,20 @@ Fix:
 3. configure `SEARXNG_URL` so the wrapper can fail over,
 4. inspect `provider_attempts` in the tool result or wrapper logs.
 
+## WhatsApp says timer/reminder is not available
+Cause: reminder query was routed into `twinmind_conversation` instead of tool-capable split path.
+Fix:
+1. deploy latest `vendor/twinmind_orchestrator.py` from this repo,
+2. restart gateway/wrapper runtime,
+3. verify latest log route:
+   - expected: `tool_bridge_override` + `split_executor_bridge` or `reminder_fastpath`
+   - not expected: `twinmind_conversation` for reminder/timer intent
+4. quick check command:
+```bash
+LATEST="$(ls -1t /root/.clawdbot/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
+rg -n '"router_decision"|remind_me|final' "$LATEST"
+```
+
 Weiter:
 - [04-config-reference.md](./04-config-reference.md)
 - [05-migration-guide.md](./05-migration-guide.md)
