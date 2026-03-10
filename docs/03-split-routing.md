@@ -6,12 +6,14 @@ Zurück: [Wrapper Architecture](./02-wrapper-architecture.md) | Weiter: [Config 
 - `--mode`: `conversation` oder `tool_bridge`
 - `--routing-mode`: `legacy` oder `strict_split`
 - erkannter Tool-Intent in der Anfrage
+- erkannter Audio-Kontext (`[Audio] ... Transcript`, `<media:audio>`, Audio-Anhang)
 - Fastpath-Matches
 
 ## Route-Ergebnisse
 - `twinmind_conversation`
 - `twinmind_tool_bridge`
 - `split_executor_bridge`
+- `audio_stt_unavailable_fastpath` (Audio empfangen, aber kein Transcript/STT verfuegbar)
 - fastpath-spezifische direkte Routen
 
 ## Entscheidungsbaum
@@ -116,12 +118,28 @@ Bei ungültigem Ausgabeformat läuft ein begrenzter Repair-Mechanismus, damit de
 - Shell/Write-Policies
 - kontrollierte Fallbacks statt harter Abbrüche
 
+## Audio Sonderregel
+- Audio-Nachrichten mit vorhandenem Transcript bleiben bevorzugt im `twinmind_conversation`-Pfad.
+- Der Wrapper zieht dafuer den Transcript-Text als `conversation_query` vor und entzieht Audio-Nachrichten dem strikten Tool-Intent, solange kein expliziter Tool-Wunsch vorliegt.
+- Wenn ein Audio-Anhang vorliegt, aber kein Transcript geliefert werden konnte, endet der Lauf deterministisch in `audio_stt_unavailable_fastpath`.
+
+## Websearch Fallback
+- Bei Web-Recherche-Anfragen kann der Wrapper lokale Suche nutzen, wenn TwinMind:
+  - mit HTTP-Fehler endet oder
+  - explizit meldet, dass Websuche/Browsing nicht verfuegbar ist
+- Reihenfolge:
+  - Brave mit Rate-Gate + Retry
+  - optional SearXNG als Fallback
+- Die lokale Websuche bleibt im `twinmind_conversation`-Pfad ein Antwort-Fallback; sie ersetzt nicht den normalen Split-Executor.
+
 ## Observability
 Wichtige Events:
 - `router_decision`
+- `routing_adjustment`
 - `planner_brief_ready` / `planner_brief_failed`
 - `protocol_error`
 - `executor_failed`
+- `fallback_triggered` / `fallback_skipped`
 - `final`
 
 Weiter:

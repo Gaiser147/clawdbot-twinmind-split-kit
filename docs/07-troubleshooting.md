@@ -81,6 +81,38 @@ Fix:
 1. manually set `ORCH_EXECUTOR_PROVIDER` + `ORCH_EXECUTOR_MODEL` + URL/key profile,
 2. verify executor_request logs show HTTP profile instead of `codex_cli`.
 
+## Audio message says transcription is unavailable
+Cause: inbound audio was detected, but the wrapper did not receive a usable transcript block.
+Fix:
+1. verify the upstream gateway really injects `[Audio] ... Transcript: ...`,
+2. if STT should happen on the gateway, verify `DEEPGRAM_API_KEY`,
+3. check latest log route:
+   - expected on failure: `audio_stt_unavailable_fastpath`
+4. quick check:
+```bash
+LATEST="$(ls -1t /root/.clawdbot/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
+rg -n 'audio_stt_unavailable_fastpath|routing_adjustment|Transcript:' "$LATEST"
+```
+
+## TwinMind web search fails, but local fallback should handle it
+Cause: TwinMind returned HTTP error / \"web search unavailable\" and local fallback was disabled or misconfigured.
+Fix:
+1. verify `ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK=1`,
+2. verify `BRAVE_API_KEY`,
+3. optionally set `SEARXNG_URL` as second fallback,
+4. inspect latest log for:
+   - `fallback_triggered`
+   - `fallback_skipped`
+   - Brave/SearXNG errors in `warnings` or `provider_attempts`
+
+## Brave search hits rate limits
+Cause: wrapper is exceeding Brave quota cadence.
+Fix:
+1. increase `ORCH_WEBSEARCH_BRAVE_MIN_INTERVAL_MS`,
+2. keep `ORCH_WEBSEARCH_BRAVE_MAX_RETRIES` > 0,
+3. configure `SEARXNG_URL` so the wrapper can fail over,
+4. inspect `provider_attempts` in the tool result or wrapper logs.
+
 Weiter:
 - [04-config-reference.md](./04-config-reference.md)
 - [05-migration-guide.md](./05-migration-guide.md)

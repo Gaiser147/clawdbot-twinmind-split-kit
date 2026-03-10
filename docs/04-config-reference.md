@@ -18,6 +18,23 @@ Ohne diese beiden Werte kann der Wrapper keine TwinMind-Requests stabil ausfuehr
 | `TWINMIND_VERCEL_BYPASS` | Optionaler Bypass Header-Wert |
 | `TWINMIND_USER_AGENT` | Eigener User-Agent |
 
+## Medien- und Websearch-Optionen
+
+| Variable | Zweck |
+|---|---|
+| `DEEPGRAM_API_KEY` | Upstream/Gateway-STT fuer Audio; ohne Transcript meldet der Wrapper `audio_stt_unavailable_fastpath` |
+| `ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK` | aktiviert lokalen Websearch-Fallback bei TwinMind-Webfehlern (`1` default) |
+| `ORCH_WEBSEARCH_BRAVE_MIN_INTERVAL_MS` | Mindestabstand zwischen Brave-Requests |
+| `ORCH_WEBSEARCH_BRAVE_MAX_RETRIES` | Retry-Anzahl fuer Brave bei 429/5xx/Netzfehlern |
+| `ORCH_WEBSEARCH_RETRY_BASE_MS` | Backoff-Startwert fuer Brave-Retries |
+| `ORCH_WEBSEARCH_RETRY_MAX_MS` | Backoff-Obergrenze fuer Brave-Retries |
+| `ORCH_WEBSEARCH_CONTINUE_ON_FAILURE` | degradierten Erfolg statt hartem Fehler erlauben (`1` default) |
+| `SEARXNG_URL` | optionaler Fallback-Endpoint fuer lokale Websuche |
+| `SEARXNG_TIMEOUT_SEC` | Timeout fuer SearXNG |
+| `SEARXNG_ENGINES` | optionale Engine-Liste fuer SearXNG |
+| `SEARXNG_LANGUAGE` | optionale Sprache fuer SearXNG |
+| `ORCH_WEBSEARCH_SEARXNG_MIN_INTERVAL_MS` | Mindestabstand zwischen SearXNG-Requests |
+
 ## Split/Executor-Konfiguration
 
 | Variable | Zweck |

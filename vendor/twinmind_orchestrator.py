@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -23,6 +25,7 @@ import sys
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -50,6 +53,8 @@ LOG_DIR = STATE_DIR / "logs"
 MEMORY_DIR = STATE_DIR / "memory"
 MEMORY_INDEX_PATH = MEMORY_DIR / "index.json"
 MEMORY_STATE_PATH = MEMORY_DIR / "state.json"
+WEBSEARCH_STATE_PATH = STATE_DIR / "websearch_state.json"
+WEBSEARCH_LOCK_PATH = STATE_DIR / "websearch.lock"
 
 ENV_PATHS = [
     "/root/.clawdbot/.env",
@@ -91,6 +96,28 @@ MEDIA_ATTACHED_RE = re.compile(
     re.I,
 )
 PDF_PLACEHOLDER_RE = re.compile(r"<media:(?:document|attachment)>", re.I)
+AUDIO_PLACEHOLDER_RE = re.compile(r"<media:audio>", re.I)
+AUDIO_FOLLOWUP_RE = re.compile(
+    r"(?i)\b(audio|sprachnachricht|sprachnotiz|voice\s*note|voicenote|memo|aufnahme|gesprochen|transkript|transcribe)\b"
+)
+WEB_RESEARCH_INTENT_RE = re.compile(
+    r"\b(recherch\w*|research\w*|web\s*suche|websearch|internet|such\w*|search\w*|quelle\w*|aktuell\w*|news|vergleich\w*|find\w*)\b",
+    re.I,
+)
+WEB_UNAVAILABLE_ANSWER_RE = re.compile(
+    r"(websuche.*(geht|nicht|verfügbar|verfuegbar)|web search.*(not available|unavailable|failed)|cannot\s+(browse|search)|can't\s+(browse|search)|kein(?:en|e)?\s+zugriff.*(web|internet)|ich kann.*(web|internet)\s*nicht|(?:sonar|suchmodell|search model).*(?:invalid|ungültig|ungueltig|not a valid model id)|not a valid model id)",
+    re.I,
+)
+AUDIO_ATTACHMENT_EXTENSIONS = (
+    ".ogg",
+    ".opus",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".aac",
+    ".flac",
+    ".webm",
+)
 
 
 def load_env_files(paths: List[str]) -> None:
@@ -131,6 +158,73 @@ def ensure_state_dirs() -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_json_load(path: Path, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        if not path.exists():
+            return dict(fallback)
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    return dict(fallback)
+
+
+def _atomic_json_write(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp.{uuid.uuid4().hex[:8]}")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+@contextmanager
+def websearch_lock():
+    ensure_state_dirs()
+    with open(WEBSEARCH_LOCK_PATH, "a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _default_websearch_state_payload() -> Dict[str, Any]:
+    return {"version": 1, "providers": {}}
+
+
+def load_websearch_state_unlocked() -> Dict[str, Any]:
+    payload = _safe_json_load(WEBSEARCH_STATE_PATH, _default_websearch_state_payload())
+    providers = payload.get("providers")
+    if not isinstance(providers, dict):
+        payload["providers"] = {}
+    return payload
+
+
+def save_websearch_state_unlocked(payload: Dict[str, Any]) -> None:
+    _atomic_json_write(WEBSEARCH_STATE_PATH, payload)
+
+
+def websearch_rate_gate(provider: str, min_interval_ms: int) -> float:
+    provider_key = str(provider or "").strip().lower() or "default"
+    now = time.time()
+    wait_for = 0.0
+    with websearch_lock():
+        payload = load_websearch_state_unlocked()
+        providers = payload.get("providers") if isinstance(payload.get("providers"), dict) else {}
+        entry = providers.get(provider_key) if isinstance(providers.get(provider_key), dict) else {}
+        last_at = float(entry.get("last_request_at") or 0.0)
+        min_interval_sec = max(0.0, float(min_interval_ms) / 1000.0)
+        earliest = last_at + min_interval_sec
+        if earliest > now:
+            wait_for = earliest - now
+            time.sleep(wait_for)
+            now = time.time()
+        providers[provider_key] = {"last_request_at": now}
+        payload["providers"] = providers
+        save_websearch_state_unlocked(payload)
+    return max(0.0, wait_for)
 
 
 def is_pid_alive(pid: int) -> bool:
@@ -280,6 +374,57 @@ def get_brave_api_key() -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def get_searxng_url() -> str:
+    raw = str(getenv("SEARXNG_URL", "") or "").strip()
+    if not raw:
+        return ""
+    if raw.endswith("/"):
+        raw = raw[:-1]
+    return raw
+
+
+def has_web_research_intent(user_query: str) -> bool:
+    q = strip_channel_prefix(user_query or "").strip()
+    if not q:
+        return False
+    return bool(WEB_RESEARCH_INTENT_RE.search(q))
+
+
+def is_web_search_unavailable_answer(answer: str) -> bool:
+    return bool(WEB_UNAVAILABLE_ANSWER_RE.search(answer or ""))
+
+
+def normalize_web_search_query(user_query: str) -> str:
+    q = strip_channel_prefix(user_query or "").strip()
+    q = re.sub(r"^\s*(?:bitte\s+)?(?:suche|recherchier(?:e|en)?|search|research)\s*(?:im\s+web|online|im\s+internet|im)?\s*[:,-]?\s*", "", q, flags=re.I)
+    q = re.sub(r"\s+", " ", q).strip(" ,.-")
+    return q or strip_channel_prefix(user_query or "").strip()
+
+
+def _parse_retry_after_seconds(headers: Dict[str, Any]) -> Optional[float]:
+    if not isinstance(headers, dict):
+        return None
+    raw = str(headers.get("Retry-After") or headers.get("retry-after") or "").strip()
+    if not raw:
+        return None
+    try:
+        val = float(raw)
+    except Exception:
+        return None
+    if val < 0:
+        return None
+    return min(val, 60.0)
+
+
+def _env_int(name: str, default: int, low: int, high: int) -> int:
+    raw = str(getenv(name, str(default)) or str(default)).strip()
+    try:
+        val = int(raw)
+    except Exception:
+        val = int(default)
+    return max(int(low), min(int(high), int(val)))
 
 
 def strip_channel_prefix(user_query: str) -> str:
@@ -484,6 +629,21 @@ def maybe_enrich_pdf_query(raw_query: str, sanitized_query: str) -> Tuple[str, D
         }
     )
     return enriched, meta
+
+
+def query_has_audio_attachment(raw_query: str, sanitized_query: str) -> bool:
+    rq = raw_query or ""
+    sq = sanitized_query or ""
+    if AUDIO_PLACEHOLDER_RE.search(rq) or AUDIO_PLACEHOLDER_RE.search(sq):
+        return True
+    for path, mime in parse_media_paths_from_query(rq) + parse_media_paths_from_query(sq):
+        pp = str(path or "").strip().lower()
+        mm = str(mime or "").strip().lower()
+        if mm.startswith("audio/"):
+            return True
+        if pp.endswith(AUDIO_ATTACHMENT_EXTENSIONS):
+            return True
+    return False
 
 
 def is_tool_mode_requested(user_query: str) -> bool:
@@ -805,6 +965,31 @@ def extract_image_understanding(text: str) -> Optional[Dict[str, str]]:
         return None
     user = (m.group("user") or "").strip()
     return {"user_text": user, "description": desc}
+
+
+def extract_audio_understanding(text: str) -> Optional[Dict[str, str]]:
+    """
+    If media-understanding transcribed inbound audio, content is typically:
+      [Audio]
+      User text:
+      ...
+      Transcript:
+      ...
+    """
+    if not text:
+        return None
+    t = text.strip()
+    m = re.search(
+        r"(?is)\[Audio[^\]]*\]\s*(?:User text:\s*(?P<user>.*?))?\s*Transcript:\s*(?P<tr>.*?)(?:\n\n\[|\Z)",
+        t,
+    )
+    if not m:
+        return None
+    transcript = (m.group("tr") or "").strip()
+    if not transcript:
+        return None
+    user = (m.group("user") or "").strip()
+    return {"user_text": user, "transcript": transcript}
 
 
 def parse_one_time_reminder(user_query: str) -> Optional[Tuple[str, str]]:
@@ -1624,33 +1809,215 @@ def tool_web_search(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "Missing args.query"}
     count = int(args.get("count") or 5)
     count = max(1, min(count, 10))
+    brave_min_interval_ms = _env_int("ORCH_WEBSEARCH_BRAVE_MIN_INTERVAL_MS", 1200, 100, 10000)
+    brave_max_retries = _env_int("ORCH_WEBSEARCH_BRAVE_MAX_RETRIES", 2, 0, 8)
+    retry_base_ms = _env_int("ORCH_WEBSEARCH_RETRY_BASE_MS", 700, 100, 10000)
+    retry_max_ms = _env_int("ORCH_WEBSEARCH_RETRY_MAX_MS", 8000, 200, 30000)
+    continue_on_failure = str(getenv("ORCH_WEBSEARCH_CONTINUE_ON_FAILURE", "1") or "1").strip() == "1"
+    provider_attempts: List[Dict[str, Any]] = []
+    warnings: List[str] = []
 
     api_key = get_brave_api_key()
-    if not api_key:
-        return {"ok": False, "error": "BRAVE_API_KEY not configured (env or daily-tech-news.py missing)."}
+    if api_key:
+        for attempt in range(0, brave_max_retries + 1):
+            wait_for = websearch_rate_gate("brave", min_interval_ms=brave_min_interval_ms)
+            headers: Dict[str, Any] = {}
+            status = 0
+            err = ""
+            try:
+                r = requests.get(
+                    BRAVE_SEARCH_URL,
+                    headers={"X-Subscription-Token": api_key, "User-Agent": "clawdbot-twinmind-wrapper/1.0"},
+                    params={"q": query, "count": count},
+                    timeout=20,
+                )
+                status = int(r.status_code)
+                headers = dict(r.headers or {})
+                if status == 200:
+                    data = r.json() if r.content else {}
+                    results = []
+                    for it in (data.get("web") or {}).get("results") or []:
+                        results.append(
+                            {
+                                "title": (it.get("title") or "").strip(),
+                                "url": (it.get("url") or "").strip(),
+                                "description": (it.get("description") or "").strip(),
+                            }
+                        )
+                    out: Dict[str, Any] = {
+                        "ok": True,
+                        "query": query,
+                        "count": count,
+                        "provider_used": "brave",
+                        "results": results,
+                        "warnings": warnings,
+                        "provider_attempts": provider_attempts,
+                    }
+                    if wait_for > 0:
+                        out["rate_wait_sec"] = round(wait_for, 3)
+                    return out
+                err = f"Brave search error: HTTP {status}: {safe_truncate(r.text or '', 800)}"
+            except Exception as e:
+                status = 0
+                err = f"Brave search error: {e}"
+
+            provider_attempts.append(
+                {
+                    "provider": "brave",
+                    "attempt": attempt + 1,
+                    "status": status,
+                    "rate_wait_sec": round(wait_for, 3),
+                    "error": safe_truncate(err, 240),
+                }
+            )
+            retryable = status in {0, 429, 500, 502, 503, 504}
+            if retryable and attempt < brave_max_retries:
+                retry_after_sec = _parse_retry_after_seconds(headers)
+                if retry_after_sec is None:
+                    exp_sec = min(float(retry_max_ms) / 1000.0, (float(retry_base_ms) / 1000.0) * (2**attempt))
+                    jitter = random.uniform(0.0, min(0.4, exp_sec * 0.2))
+                    retry_after_sec = exp_sec + jitter
+                time.sleep(max(0.1, float(retry_after_sec)))
+                continue
+            warnings.append(err)
+            break
+    else:
+        warnings.append("BRAVE_API_KEY not configured")
+        provider_attempts.append({"provider": "brave", "attempt": 1, "status": 0, "error": "BRAVE_API_KEY not configured"})
+
+    searx_result = search_with_searxng(query=query, count=count)
+    if bool(searx_result.get("ok")):
+        out = dict(searx_result)
+        out["provider_used"] = "searxng"
+        out["warnings"] = warnings
+        out["provider_attempts"] = provider_attempts + [{"provider": "searxng", "attempt": 1, "status": 200, "error": ""}]
+        return out
+
+    searx_err = str(searx_result.get("error") or "").strip()
+    if searx_err:
+        warnings.append(searx_err)
+    provider_attempts.append(
+        {
+            "provider": "searxng",
+            "attempt": 1,
+            "status": int(searx_result.get("status") or 0),
+            "error": safe_truncate(searx_err or "SearXNG fallback unavailable", 240),
+        }
+    )
+    final_error = "web_search failed: " + " | ".join([w for w in warnings if w][:3])
+    if continue_on_failure:
+        return {
+            "ok": True,
+            "degraded": True,
+            "query": query,
+            "count": count,
+            "results": [],
+            "warnings": warnings,
+            "provider_attempts": provider_attempts,
+            "error": final_error,
+        }
+    return {"ok": False, "error": final_error, "warnings": warnings, "provider_attempts": provider_attempts}
+
+
+def _extract_searxng_results(data: Dict[str, Any], count: int) -> List[Dict[str, str]]:
+    results: List[Dict[str, str]] = []
+    rows = data.get("results") if isinstance(data.get("results"), list) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        url = str(item.get("url") or "").strip()
+        desc = str(item.get("content") or item.get("snippet") or "").strip()
+        if not url:
+            continue
+        results.append({"title": title, "url": url, "description": desc})
+        if len(results) >= max(1, int(count)):
+            break
+    return results
+
+
+def search_with_searxng(query: str, count: int) -> Dict[str, Any]:
+    base = get_searxng_url()
+    if not base:
+        return {"ok": False, "provider": "searxng", "error": "SEARXNG_URL not configured"}
+
+    timeout_sec = _env_int("SEARXNG_TIMEOUT_SEC", 12, 3, 45)
+    min_interval_ms = _env_int("ORCH_WEBSEARCH_SEARXNG_MIN_INTERVAL_MS", 350, 50, 5000)
+    wait_for = websearch_rate_gate("searxng", min_interval_ms=min_interval_ms)
+    params: Dict[str, Any] = {"q": query, "format": "json", "safesearch": 0}
+    engines = str(getenv("SEARXNG_ENGINES", "") or "").strip()
+    if engines:
+        params["engines"] = engines
+    language = str(getenv("SEARXNG_LANGUAGE", "") or "").strip()
+    if language:
+        params["language"] = language
 
     try:
         r = requests.get(
-            BRAVE_SEARCH_URL,
-            headers={"X-Subscription-Token": api_key, "User-Agent": "clawdbot-twinmind-wrapper/1.0"},
-            params={"q": query, "count": count},
-            timeout=20,
+            f"{base}/search",
+            params=params,
+            headers={"User-Agent": "clawdbot-twinmind-wrapper/1.0"},
+            timeout=timeout_sec,
         )
         if r.status_code != 200:
-            return {"ok": False, "error": f"Brave search error: HTTP {r.status_code}: {safe_truncate(r.text, 800)}"}
-        data = r.json()
-        results = []
-        for it in (data.get("web") or {}).get("results") or []:
-            results.append(
-                {
-                    "title": (it.get("title") or "").strip(),
-                    "url": (it.get("url") or "").strip(),
-                    "description": (it.get("description") or "").strip(),
-                }
-            )
-        return {"ok": True, "query": query, "count": count, "results": results}
+            return {
+                "ok": False,
+                "provider": "searxng",
+                "status": int(r.status_code),
+                "rate_wait_sec": round(wait_for, 3),
+                "error": f"SearXNG search error: HTTP {r.status_code}: {safe_truncate(r.text, 500)}",
+            }
+        data = r.json() if r.content else {}
+        results = _extract_searxng_results(data if isinstance(data, dict) else {}, count=count)
+        return {
+            "ok": True,
+            "provider": "searxng",
+            "query": query,
+            "count": count,
+            "results": results,
+            "rate_wait_sec": round(wait_for, 3),
+        }
     except Exception as e:
-        return {"ok": False, "error": f"web_search error: {e}"}
+        return {"ok": False, "provider": "searxng", "rate_wait_sec": round(wait_for, 3), "error": f"SearXNG search error: {e}"}
+
+
+def format_local_websearch_response(result: Dict[str, Any], fallback_reason: str = "") -> str:
+    rows = result.get("results") if isinstance(result.get("results"), list) else []
+    provider = str(result.get("provider_used") or result.get("provider") or "web_search").strip()
+    query = str(result.get("query") or "").strip()
+    if not rows:
+        txt = "Lokale Websuche war möglich, aber es wurden keine Treffer gefunden."
+        if fallback_reason:
+            txt = f"{txt}\nHinweis: {fallback_reason}"
+        warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+        if warnings:
+            txt += "\nWarnungen: " + " | ".join([safe_truncate(str(w), 160) for w in warnings[:2] if str(w).strip()])
+        return txt
+    lines = [f"Lokale Websuche ({provider}) für: {query}", ""]
+    for idx, item in enumerate(rows[:5], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip() or "Treffer"
+        url = str(item.get("url") or "").strip()
+        desc = str(item.get("description") or "").strip()
+        line = f"{idx}. {title}"
+        if url:
+            line += f" - {url}"
+        lines.append(line)
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 220)}")
+    if fallback_reason:
+        lines.append("")
+        lines.append(f"Hinweis: {fallback_reason}")
+    warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+    if warnings:
+        lines.append("")
+        lines.append("Warnungen:")
+        for warn in warnings[:2]:
+            wtxt = str(warn or "").strip()
+            if wtxt:
+                lines.append(f"- {safe_truncate(wtxt, 220)}")
+    return "\n".join(lines).strip()
 
 
 def tool_web_fetch(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -2563,6 +2930,9 @@ def main() -> None:
         parser.error("missing query: provide --query or a positional query argument")
     user_query = raw_user_query
     sanitized_query = sanitize_inbound_query(raw_user_query) or raw_user_query
+    has_audio_attachment = query_has_audio_attachment(raw_user_query, sanitized_query)
+    has_audio_followup_intent = bool(AUDIO_FOLLOWUP_RE.search(sanitized_query or ""))
+    audio_ctx = extract_audio_understanding(raw_user_query) or extract_audio_understanding(sanitized_query)
 
     derived_key = derive_user_key_from_query(raw_user_query)
     if derived_key:
@@ -2629,6 +2999,22 @@ def main() -> None:
         else:
             message = f"Bildbeschreibung:\n{desc}"
         emit_and_exit(message, code=0, ingest_memory=False, memory_route="image_fastpath")
+
+    if has_audio_attachment and not audio_ctx:
+        missing_key = not bool((getenv("DEEPGRAM_API_KEY", "") or "").strip())
+        msg = "Ich konnte diese Sprachnachricht gerade nicht transkribieren."
+        if missing_key:
+            msg += " Audio-STT ist auf dem Gateway aktuell nicht konfiguriert (DEEPGRAM_API_KEY fehlt)."
+        msg += " Bitte sende den Inhalt kurz als Text."
+        write_log(
+            log_path,
+            {
+                "event": "router_decision",
+                "route": "audio_stt_unavailable_fastpath",
+                "missing_deepgram_key": missing_key,
+            },
+        )
+        emit_and_exit(msg, code=0, ingest_memory=False, memory_route="audio_stt_unavailable_fastpath")
 
     # Cron reminder passthrough: avoid LLM usage for simple scheduled reminder deliveries.
     if re.match(r"^\s*(?:\[cron:[^\]]+\]\s*)?⏰\s*Reminder:", user_query):
@@ -2745,7 +3131,20 @@ def main() -> None:
         explicit_tool_intent = True
 
     conversation_query = sanitized_query
+    if audio_ctx and str(audio_ctx.get("transcript") or "").strip():
+        conversation_query = str(audio_ctx.get("transcript") or "").strip()
     pdf_query_meta: Dict[str, Any] = {}
+    audio_conversation_guard = has_audio_attachment or has_audio_followup_intent or bool(audio_ctx)
+    if audio_conversation_guard and explicit_tool_intent and not TOOL_EXPLICIT_RE.search(sanitized_query or ""):
+        explicit_tool_intent = False
+        write_log(
+            log_path,
+            {
+                "event": "routing_adjustment",
+                "rule": "audio_conversation_guard",
+                "reason": "avoid_strict_split_for_audio_context",
+            },
+        )
     if cfg.mode == "conversation" and not explicit_tool_intent:
         conversation_query, pdf_query_meta = maybe_enrich_pdf_query(raw_user_query, sanitized_query)
         if pdf_query_meta.get("detected"):
@@ -2806,6 +3205,25 @@ def main() -> None:
 
             if status != 200:
                 write_log(log_path, {"event": "llm_error", "status": status, "error": err, "mode": "conversation"})
+                if (str(getenv("ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK", "1") or "1").strip() == "1") and has_web_research_intent(sanitized_query):
+                    local_query = normalize_web_search_query(sanitized_query)
+                    local_result = tool_web_search({"query": local_query, "count": 5})
+                    local_rows = local_result.get("results") if isinstance(local_result.get("results"), list) else []
+                    if local_rows:
+                        write_log(
+                            log_path,
+                            {
+                                "event": "fallback_triggered",
+                                "fallback": "local_web_search_after_conversation_http_error",
+                                "status": status,
+                                "query_preview": safe_truncate(local_query, 220),
+                            },
+                        )
+                        fallback_msg = format_local_websearch_response(
+                            local_result,
+                            fallback_reason=f"TwinMind-Fehler ({status}); lokale Suche wurde genutzt.",
+                        )
+                        emit_and_exit(fallback_msg, code=0, session_id=session_id, memory_route="twinmind_conversation")
                 emit_and_exit(f"TwinMind API error: {status} {err}", code=2, session_id=session_id, memory_route="twinmind_conversation")
 
             answer = (raw or "").strip()
@@ -2847,6 +3265,44 @@ def main() -> None:
                     )
             if not answer:
                 answer = "Ich konnte gerade keine Antwort generieren. Bitte versuche es erneut."
+
+            if (str(getenv("ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK", "1") or "1").strip() == "1") and is_web_search_unavailable_answer(answer):
+                local_query = normalize_web_search_query(sanitized_query)
+                do_local_fallback = len((local_query or "").strip()) >= 8
+                if do_local_fallback:
+                    local_result = tool_web_search({"query": local_query, "count": 5})
+                    local_rows = local_result.get("results") if isinstance(local_result.get("results"), list) else []
+                    if local_rows:
+                        write_log(
+                            log_path,
+                            {
+                                "event": "fallback_triggered",
+                                "fallback": "local_web_search_after_conversation_web_unavailable",
+                                "query_preview": safe_truncate(local_query, 220),
+                            },
+                        )
+                        answer = format_local_websearch_response(
+                            local_result,
+                            fallback_reason="TwinMind meldete Websuche-Fehler; lokale Suche wurde als Fallback genutzt.",
+                        )
+                    else:
+                        write_log(
+                            log_path,
+                            {
+                                "event": "fallback_skipped",
+                                "reason": "local_web_search_no_results_after_web_unavailable",
+                                "query_preview": safe_truncate(local_query, 220),
+                            },
+                        )
+                else:
+                    write_log(
+                        log_path,
+                        {
+                            "event": "fallback_skipped",
+                            "reason": "local_query_too_short_after_web_unavailable",
+                            "query_preview": safe_truncate(local_query, 220),
+                        },
+                    )
 
             if is_provider_refusal(answer):
                 write_log(log_path, {"event": "provider_refusal", "session_id": session_id, "preview": answer[:500]})
