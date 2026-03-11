@@ -1,133 +1,212 @@
 # Troubleshooting
 
-## Converter fails with invalid JSON
-Cause: malformed `clawdbot.json`.
-Fix: repair JSON and rerun `--mode plan`.
+## Migration and rollback
 
-## Apply rejected due to missing --yes
+### Converter fails with invalid JSON
+
+Cause: malformed target config.
+
+Fix:
+
+1. repair `clawdbot.json`
+2. rerun `--mode plan`
+
+### Apply rejected due to missing `--yes`
+
 Cause: safety gate.
+
 Fix: rerun with `--yes`.
 
-## Rollback cannot find manifest
+### Rollback cannot find manifest
+
 Cause: wrong migration id or missing files.
-Fix: check `manifests/` and rerun with exact `--migration-id`.
 
-## GitHub repo creation fails
-Cause: no `gh`, missing token, or insufficient permissions.
 Fix:
-1. install/authenticate `gh`, or
-2. export `GITHUB_TOKEN` and use REST fallback.
 
-## safe_push blocked by secret findings
-Cause: potential credential pattern detected.
+1. inspect `manifests/`
+2. rerun with the exact `--migration-id`
+
+### Auto-detection did not find my config
+
+Cause: config is outside the built-in Clawdbot/OpenClaw search paths.
+
+Fix: pass `--config <path>` explicitly.
+
+Note: OpenClaw support here is limited to compatible config paths and config shape.
+
+## Profile switching and executor issues
+
+### I changed `.env`, but the runtime still uses Codex
+
+Cause: the migrated backend config contains explicit `--executor-provider codex_cli` and `--executor-model gpt-5.3-codex` args. Explicit backend args beat env vars.
+
 Fix:
-1. remove/redact sensitive content,
-2. re-run secret scan,
-3. push only after clean scan.
 
-## Wrapper runtime error: Missing TWINMIND_REFRESH_TOKEN
-Cause: refresh token not set in runtime `.env`.
+1. edit `agents.defaults.cliBackends.twinmind-cli.args`
+2. change or remove the pinned provider/model args
+3. keep `ORCH_EXECUTOR_BASE_URL` and auth in `.env` for HTTP profiles
+4. rerun the smoke test from [05-migration-guide.md](./05-migration-guide.md)
+
+### `strict_split` executor fails: `codex_cli executor failed`
+
+Cause: `codex` binary missing, login expired, timeout, or model unavailable.
+
 Fix:
-1. add `TWINMIND_REFRESH_TOKEN`,
-2. restart runtime,
-3. verify environment load order.
 
-## Wrapper runtime error: Firebase token refresh failed
-Cause: missing/invalid `TWINMIND_FIREBASE_API_KEY`.
-Fix:
-1. set valid `TWINMIND_FIREBASE_API_KEY`,
-2. verify no trailing spaces/quotes,
-3. retry request and inspect wrapper log event.
+1. verify `codex` exists and is executable
+2. verify Codex login for the same machine/user as the wrapper runtime
+3. confirm the configured model is available to that account
+4. increase executor timeout if needed
 
-## strict_split executor fails: codex_cli executor failed
-Cause: `codex` binary missing, not authenticated, timed out, or model not available.
-Fix:
-1. verify `codex` CLI is installed and executable,
-2. verify Codex login/auth profile,
-3. confirm `ORCH_EXECUTOR_MODEL` exists for your account,
-4. increase executor timeout if needed.
+### HTTP executor returns `401` or `403`
 
-## strict_split HTTP executor returns 401/403
 Cause: wrong key or wrong provider config.
-Fix:
-1. validate `ORCH_EXECUTOR_PROVIDER`,
-2. validate `ORCH_EXECUTOR_API_KEY` / `OPENAI_API_KEY`,
-3. ensure endpoint accepts your key scope.
 
-## Codex OAuth fallback expected, but auth still missing
-Cause: no valid local Codex auth profile for OAuth fallback.
 Fix:
-1. run Codex CLI login on the same machine/user as wrapper runtime,
-2. optionally set `ORCH_EXECUTOR_CODEX_PROFILE` to the intended profile name,
-3. remove conflicting invalid API-key values in `.env`,
-4. retry and inspect executor auth error in logs.
 
-## strict_split HTTP executor returns 404/5xx
-Cause: wrong `ORCH_EXECUTOR_BASE_URL` or upstream outage.
-Fix:
-1. verify base URL (must resolve to working chat-completions endpoint),
-2. verify model name exists,
-3. retry after transient outage.
+1. verify provider/model/base URL match the endpoint you intended
+2. verify auth values
+3. confirm the endpoint accepts your key scope
 
-## Module error: requests not found
-Cause: Python dependency `requests` missing.
-Fix:
-1. install `requests` in the Python environment used by wrapper,
-2. rerun preflight checks.
+### HTTP executor returns `404` or `5xx`
 
-## Migration worked, but Gemini is not used
-Cause: converter still patched Codex defaults.
-Fix:
-1. manually set `ORCH_EXECUTOR_PROVIDER` + `ORCH_EXECUTOR_MODEL` + URL/key profile,
-2. verify executor_request logs show HTTP profile instead of `codex_cli`.
+Cause: wrong `ORCH_EXECUTOR_BASE_URL`, wrong model, or upstream outage.
 
-## Audio message says transcription is unavailable
-Cause: inbound audio was detected, but the wrapper did not receive a usable transcript block.
 Fix:
-1. verify the upstream gateway really injects `[Audio] ... Transcript: ...`,
-2. if STT should happen on the gateway, verify `DEEPGRAM_API_KEY`,
-3. check latest log route:
-   - expected on failure: `audio_stt_unavailable_fastpath`
-4. quick check:
+
+1. verify the base URL resolves to a working `/chat/completions` endpoint
+2. verify the model name exists there
+3. retry after transient upstream failures
+
+### Expected Codex OAuth fallback, but auth is still missing
+
+Cause: no usable local Codex auth profile.
+
+Fix:
+
+1. run Codex login on the same machine/user as the wrapper runtime
+2. optionally set `ORCH_EXECUTOR_CODEX_PROFILE`
+3. remove conflicting invalid key values
+4. retry and inspect the executor auth error in logs
+
+## Runtime prerequisites
+
+### Wrapper runtime error: missing `TWINMIND_REFRESH_TOKEN`
+
+Fix:
+
+1. add `TWINMIND_REFRESH_TOKEN`
+2. restart the runtime
+3. verify env file loading order
+
+### Wrapper runtime error: Firebase token refresh failed
+
+Fix:
+
+1. set a valid `TWINMIND_FIREBASE_API_KEY`
+2. remove trailing spaces or quotes
+3. retry and inspect the wrapper log
+
+### Module error: `requests` not found
+
+Fix:
+
+1. install Python `requests` in the runtime environment
+2. rerun the preflight checks
+
+## Route and feature behavior
+
+### My smoke test did not hit `split_executor_bridge`
+
+Cause: the request stayed in plain conversation or hit a fastpath.
+
+Fix:
+
+1. use the documented smoke-test query: `Was sind meine aktuellen Sharezone-Hausaufgaben?`
+2. confirm the backend is still `--routing-mode strict_split`
+3. inspect `router_decision` lines in the latest log
+
+### Audio message says transcription is unavailable
+
+Cause: inbound audio was detected, but no usable transcript block reached the wrapper.
+
+Fix:
+
+1. verify the upstream gateway injects `[Audio] ... Transcript: ...`
+2. if STT happens upstream, verify `DEEPGRAM_API_KEY`
+3. check the latest log for `audio_stt_unavailable_fastpath`
+
+Quick check:
+
 ```bash
-LATEST="$(ls -1t /root/.clawdbot/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
+CFG="${CFG:-$HOME/.clawdbot/clawdbot.json}"
+RUNTIME_ROOT="$(dirname "$CFG")"
+LATEST="$(ls -1t "$RUNTIME_ROOT"/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
 rg -n 'audio_stt_unavailable_fastpath|routing_adjustment|Transcript:' "$LATEST"
 ```
 
-## TwinMind web search fails, but local fallback should handle it
-Cause: TwinMind returned HTTP error / \"web search unavailable\" and local fallback was disabled or misconfigured.
-Fix:
-1. verify `ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK=1`,
-2. verify `BRAVE_API_KEY`,
-3. optionally set `SEARXNG_URL` as second fallback,
-4. inspect latest log for:
-   - `fallback_triggered`
-   - `fallback_skipped`
-   - Brave/SearXNG errors in `warnings` or `provider_attempts`
+### TwinMind web search fails, but local fallback should handle it
 
-## Brave search hits rate limits
-Cause: wrapper is exceeding Brave quota cadence.
 Fix:
-1. increase `ORCH_WEBSEARCH_BRAVE_MIN_INTERVAL_MS`,
-2. keep `ORCH_WEBSEARCH_BRAVE_MAX_RETRIES` > 0,
-3. configure `SEARXNG_URL` so the wrapper can fail over,
-4. inspect `provider_attempts` in the tool result or wrapper logs.
 
-## WhatsApp says timer/reminder is not available
-Cause: reminder query was routed into `twinmind_conversation` instead of tool-capable split path.
+1. verify `ORCH_TWINMIND_WEBERROR_LOCAL_FALLBACK=1`
+2. verify `BRAVE_API_KEY`
+3. optionally set `SEARXNG_URL`
+4. inspect the log for `fallback_triggered`, `fallback_skipped`, or provider warnings
+
+### Brave search hits rate limits
+
 Fix:
-1. deploy latest `vendor/twinmind_orchestrator.py` from this repo,
-2. restart gateway/wrapper runtime,
-3. verify latest log route:
-   - expected: `tool_bridge_override` + `split_executor_bridge` or `reminder_fastpath`
-   - not expected: `twinmind_conversation` for reminder/timer intent
-4. quick check command:
+
+1. increase `ORCH_WEBSEARCH_BRAVE_MIN_INTERVAL_MS`
+2. keep retries enabled
+3. configure `SEARXNG_URL` as fallback
+4. inspect `provider_attempts` in logs or tool output
+
+### WhatsApp says timer/reminder is not available
+
+Cause: the request was routed into `twinmind_conversation` instead of a tool-capable path.
+
+Fix:
+
+1. deploy the current `vendor/twinmind_orchestrator.py`
+2. restart the wrapper runtime or gateway
+3. verify the latest log shows `tool_bridge_override` with `split_executor_bridge` or `reminder_fastpath`
+4. confirm it did not stay in `twinmind_conversation`
+
+Quick check:
+
 ```bash
-LATEST="$(ls -1t /root/.clawdbot/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
-rg -n '"router_decision"|remind_me|final' "$LATEST"
+CFG="${CFG:-$HOME/.clawdbot/clawdbot.json}"
+RUNTIME_ROOT="$(dirname "$CFG")"
+LATEST="$(ls -1t "$RUNTIME_ROOT"/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
+rg -n 'router_decision|remind_me|final' "$LATEST"
 ```
 
-Weiter:
-- [04-config-reference.md](./04-config-reference.md)
+## Channel and platform limits
+
+### Telegram or another non-WhatsApp channel behaves inconsistently
+
+Cause: this wrapper contains explicit transport parsing for WhatsApp metadata, not Telegram-specific gateway semantics.
+
+Fix:
+
+1. treat non-WhatsApp usage as plain-text best effort
+2. test route-dependent features manually
+3. do not assume auto-target reply behavior outside WhatsApp
+
+### I need Moltbook support
+
+Cause: this repo only supports Moltbook/Moltbot config locations that still use the same Clawdbot-style JSON shape. It does not ship a dedicated Moltbook-specific runtime or transport adapter.
+
+Fix:
+1. use this kit only when the Moltbook/Moltbot config still matches the documented Clawdbot-style JSON layout,
+2. run `--mode plan` first and inspect the patched keys,
+3. if your install uses a different schema or transport layer, treat it as unsupported until you add a dedicated adapter outside the scope of this kit.
+
+## Related docs
+
 - [05-migration-guide.md](./05-migration-guide.md)
+- [06-operations-runbook.md](./06-operations-runbook.md)
+- [08-rollback.md](./08-rollback.md)
 - [10-model-profiles-and-credentials.md](./10-model-profiles-and-credentials.md)

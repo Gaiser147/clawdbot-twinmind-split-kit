@@ -1,205 +1,153 @@
 # TwinMind Split Kit
 ![repo banner](https://raw.githubusercontent.com/Gaiser147/clawdbot-twinmind-split-kit/refs/heads/main/Drawing%2010%20(2).png)
 
-Diese Startseite fuehrt neue Nutzer Schritt fuer Schritt durch Split-Logik, TwinMind Wrapper und sichere Migration.
+TwinMind Split Kit adds the TwinMind wrapper backend to an existing Clawdbot-style setup and gives you three safe entry points:
 
-## Fuer wen ist dieses Repo?
-- Fuer Nutzer, die verstehen wollen, wie der TwinMind Wrapper arbeitet.
-- Fuer Nutzer, die die Split-Logik (`legacy bridge` vs `strict_split`) sicher einsetzen wollen.
-- Fuer Nutzer, die von Standard-Clawdbot auf diese Architektur migrieren moechten.
+1. understand the architecture
+2. build a safe local replica
+3. patch a live config with rollback artifacts
 
-## Schnellstart in 6 Schritten
-1. Grundidee lesen: [docs/00-start-here.md](./docs/00-start-here.md)
-2. Split-Routing verstehen: [docs/03-split-routing.md](./docs/03-split-routing.md)
-3. Modellprofil waehlen (Codex oder Alternative): [docs/10-model-profiles-and-credentials.md](./docs/10-model-profiles-and-credentials.md)
-4. Runtime-Secrets sicher beschaffen und setzen: [docs/11-token-sourcing-safe.md](./docs/11-token-sourcing-safe.md)
-5. Migration immer zuerst mit `plan`: [docs/05-migration-guide.md](./docs/05-migration-guide.md)
-6. Betrieb/Checks nachziehen: [docs/06-operations-runbook.md](./docs/06-operations-runbook.md)
+## Before you choose a path
 
-## Split-Logik einfach erklaert
-- `conversation`: Wrapper fragt TwinMind direkt, ohne striktes Tool-Protokoll.
-- `tool_bridge`: Wrapper erzwingt ein strukturiertes Tool-Protokoll (`tool_call`/`final`).
-- `legacy bridge`: Ein Bridge-Pfad ohne harte Planner/Executor-Aufteilung.
-- `strict_split`: TwinMind plant/finalisiert, ein externer Executor fuehrt deterministisch aus.
+This repo does not change your live setup by itself. The only mutating step is `scripts/convert_clawdbot_to_split.sh --mode apply`.
 
-Merksatz:
-- `legacy bridge` = kompatibler Ein-Bruecken-Flow.
-- `strict_split` = klar getrennte Rollen (Planner -> Executor -> Finalizer).
+## Support levels and limits
 
-<details>
-<summary><strong>Was ist die Legacy Bridge genau, wann wird sie gewaehlt, und warum?</strong></summary>
-
-Die `legacy bridge` ist der kompatible Bridge-Modus im `tool_bridge`, bei dem kein harter Planner/Executor-Split erzwungen wird.
-
-**Warum wird sie gewaehlt?**
-- wenn ein durchgaengiger Ein-Bruecken-Flow genuegt
-- wenn Kompatibilitaet wichtiger ist als maximale Rollentrennung
-
-**Beispiel:**
-- Nutzer: "Zeig mir bitte meine aktuellen Sharezone-Hausaufgaben."
-- Route: `tool_bridge` + `legacy`
-- Ablauf: Bridge erzeugt Tool-Aufruf, verarbeitet Tool-Resultat und liefert die Endantwort.
-
-</details>
-
-<details>
-<summary><strong>Was sind Fastpaths und wer entscheidet, ob ein Fastpath genutzt wird?</strong></summary>
-
-Fastpaths sind deterministische Kurzrouten im Wrapper. Sie umgehen den normalen Modell-/Bridge-Ablauf fuer klar erkennbare Spezialfaelle.
-
-**Wer entscheidet das?**
-- Der Wrapper ueber feste Matcher/Regeln im Routing-Code.
-
-**Beispiele:**
-- "[cron] Run Schulcloud daily" -> Cron-Fastpath
-- "HEARTBEAT Status?" -> Heartbeat-Fastpath
-
-**Nutzen:**
-- weniger Latenz
-- weniger unnoetige Modellaufrufe
-- stabileres Verhalten bei standardisierten Tasks
-
-</details>
-
-## Modelle im Split-Pfad
-Der aktuelle Converter und das Replica-Skript patchen standardmaessig:
-- `ORCH_EXECUTOR_PROVIDER=codex_cli`
-- `ORCH_EXECUTOR_MODEL=gpt-5.3-codex`
-
-Alternative Modelle sind trotzdem moeglich, indem nach der Migration die bestehenden `ORCH_EXECUTOR_*` Variablen angepasst werden.
-
-| Profil | Executor-Provider | Typischer Einsatz |
+| Target | Support level in this repo | What that means |
 |---|---|---|
-| Codex (Default) | `codex_cli` | Lokale Codex-CLI-Ausfuehrung im `strict_split`-Executor |
-| OpenAI-kompatibel (z. B. Gemini-kompatibles Endpoint) | `openai` / `openai_codex` / `codex` | HTTP-Executor ueber `ORCH_EXECUTOR_BASE_URL` + API-Key |
+| Clawdbot config/runtime | supported | primary target for migration, replica, runbook, rollback |
+| OpenClaw config paths | limited support | converter can auto-detect common `openclaw` config filenames and patch the same Clawdbot-style JSON shape |
+| Moltbook/Moltbot config paths | limited support | converter can auto-detect common `moltbook`/`moltbot` config filenames and patch the same Clawdbot-style JSON shape |
+| WhatsApp gateway usage | supported | wrapper has explicit inbound parsing and reply-target handling for WhatsApp metadata |
+| Telegram or other non-WhatsApp gateways | best effort for plain text only | no Telegram-specific transport handling, auto-targeting, or docs-tested migration path |
 
-Hinweis fuer Codex 5.3:
-- Im Defaultprofil (`codex_cli`) kommt die Auth aus der lokalen Codex-CLI-OAuth-Session, nicht aus einem statischen API-Key.
+## Quickstart
 
-<details>
-<summary><strong>Warum bleibt Codex Default, obwohl Gemini moeglich ist?</strong></summary>
+### Path 1: Understand the system first
 
-Die Skripte sind aktuell auf einen stabilen Codex-Standardpfad ausgelegt. So bleiben Migration und Replica reproduzierbar.
+Read these in order:
 
-Andere Modelle werden nicht blockiert, sondern als Nachkonfiguration unterstuetzt. Das reduziert Risiko in der Basis-Migration und erlaubt trotzdem flexible Provider-Wahl.
+1. [docs/00-start-here.md](./docs/00-start-here.md)
+2. [docs/03-split-routing.md](./docs/03-split-routing.md)
+3. [docs/10-model-profiles-and-credentials.md](./docs/10-model-profiles-and-credentials.md)
 
-</details>
+Use this path if you want the mental model before touching config.
 
-## Architektur auf einen Blick
-```mermaid
-flowchart LR
-    A[Clawdbot] --> B[Wrapper: twinmind_orchestrator.py]
-    B --> C{mode}
-    C -->|conversation| D[TwinMind SSE]
-    C -->|tool_bridge| E{routing_mode}
-    E -->|legacy| F[Legacy Bridge Loop]
-    E -->|strict_split| G[Planner -> Executor -> Finalizer]
-    G --> H{Executor Profil}
-    H -->|codex_cli| I[Codex CLI]
-    H -->|openai-compatible| J[HTTP Chat Completions]
-    D --> K[User Response]
-    F --> K
-    I --> K
-    J --> K
+### Path 2: Safe trial with a local replica
+
+Use this if you want to inspect the generated backend shape without patching the live runtime.
+
+Plan the replica:
+
+```bash
+/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
+  --mode plan \
+  --target-root /root/.clawdbot-replica
 ```
 
-## Routing-Entscheidung
-```mermaid
-flowchart TD
-    A[Request] --> B{Fastpath?}
-    B -->|ja| C[Deterministischer Fastpath]
-    B -->|nein| D{mode=conversation?}
-    D -->|ja| E{Tool-Intent?}
-    E -->|nein| F[twinmind_conversation]
-    E -->|ja| G[tool_bridge]
-    D -->|nein| G
-    G --> H{routing_mode}
-    H -->|legacy| I[twinmind_tool_bridge]
-    H -->|strict_split| J[split_executor_bridge]
+Create the replica:
+
+```bash
+/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
+  --mode apply \
+  --target-root /root/.clawdbot-replica \
+  --yes
 ```
 
-## Reminder/Timer Routing Hinweis
-- Reminder/Timer-Intents werden im Wrapper als Tool-Intent behandelt.
-- Dadurch wird bei solchen Anfragen der tool-faehige Pfad erzwungen (`tool_bridge_override` -> `split_executor_bridge`) statt reinem `twinmind_conversation`.
-- Relative Reminder wie `in 10 Minuten` koennen direkt ueber `reminder_fastpath` ausgefuehrt werden.
+Then continue with:
 
-## Unterschied zu Standard-Clawdbot
+1. [docs/06-operations-runbook.md](./docs/06-operations-runbook.md)
+2. [docs/09-script-reference.md](./docs/09-script-reference.md)
 
-| Bereich | Standard-Clawdbot | Dieses Repo (TwinMind Split Kit) | Wirkung |
-|---|---|---|---|
-| Primaeres Backend | Standard Provider/Agent-Flow | TwinMind Wrapper als CLI-Backend | Einheitliches Wrapper-Routing |
-| Routing | Kein expliziter Split-Mechanismus | `legacy bridge` + `strict_split` | Kontrollierbare Ausfuehrungswege |
-| Tool-Orchestrierung | Provider-abhaengig | JSON-Protokoll in `tool_bridge` | Deterministischere Tool-Schritte |
-| Modellwahl im Split-Pfad | Provider intern | Dokumentierte Executor-Profile | Klarere Multi-Model-Konfiguration |
-| Finalisierung | Direkt aus Provider-Pfad | Optional TwinMind-Finalizer in `strict_split` | Konsistentere Nutzerantwort |
-| Migration/Rollback | Kein dediziertes Kit | `plan/apply/rollback` Skripte + Manifest | Sicherere Umstellung |
-| Replizierbarkeit | Manuell | Replica-Bootstrap-Skript | Schneller Neuaufbau |
+### Path 3: Live migration
 
-## Code-Struktur und Verantwortlichkeiten
-- [vendor/](./vendor/) Runtime-Kern
-  - [twinmind_orchestrator.py](./vendor/twinmind_orchestrator.py): Hauptlogik
-  - [twinmind_memory_sync.py](./vendor/twinmind_memory_sync.py): Memory-Sync
-  - [twinmind_memory_query.py](./vendor/twinmind_memory_query.py): Memory-Query
-- [scripts/](./scripts/) Betrieb und Migration
-  - [convert_clawdbot_to_split.sh](./scripts/convert_clawdbot_to_split.sh)
-  - [bootstrap_clawdbot_replica.sh](./scripts/bootstrap_clawdbot_replica.sh)
-  - [safe_push.sh](./scripts/safe_push.sh)
-- [docs/](./docs/) Onboarding, Architektur, Betrieb
-- [templates/](./templates/) Patch- und Env-Vorlagen
-- [manifests/](./manifests/) Migrationsschema und erzeugte Manifeste
-- [analysis/](./analysis/) Line-Refs und Architektur-Mapping
+Use this only when you are ready to patch the real config.
 
-## Lesewege nach Ziel
-- Ich bin neu:
-  - [00-start-here](./docs/00-start-here.md)
-  - [01-overview](./docs/01-overview.md)
-  - [10-model-profiles-and-credentials](./docs/10-model-profiles-and-credentials.md)
-  - [11-token-sourcing-safe](./docs/11-token-sourcing-safe.md)
-- Ich migriere/betreibe:
-  - [05-migration-guide](./docs/05-migration-guide.md)
-  - [06-operations-runbook](./docs/06-operations-runbook.md)
-  - [07-troubleshooting](./docs/07-troubleshooting.md)
-  - [08-rollback](./docs/08-rollback.md)
-- Ich will tief technisch einsteigen:
-  - [02-wrapper-architecture](./docs/02-wrapper-architecture.md)
-  - [03-split-routing](./docs/03-split-routing.md)
-  - [09-script-reference](./docs/09-script-reference.md)
+Preflight:
 
-## Sicherheitsregeln
-- Keine Migration automatisch ausfuehren.
-- Immer zuerst `plan`.
-- Keine Credentials committen.
-- Runtime-Secrets nur lokal in `.env` halten.
-- Vor Push immer [scripts/safe_push.sh](./scripts/safe_push.sh).
+1. `python3` exists
+2. `sha256sum` exists
+3. Python `requests` is installed for the wrapper runtime
+4. your TwinMind runtime secrets are available locally
+5. if you keep the default Codex executor, `codex` CLI is installed and logged in
 
-## Schnellbefehle
-Migration planen:
+Always start with a dry plan:
+
 ```bash
 /root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode plan
 ```
 
-Hinweis:
-- Der Converter erkennt beim Weglassen von `--config` jetzt gaengige `clawdbot`- und `openclaw`-Pfade automatisch.
+Apply only after the plan looks correct:
 
-Replica dry-run:
 ```bash
-/root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh --mode plan --target-root /root/.clawdbot-replica
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
+  --mode apply \
+  --yes
 ```
 
-Private Repo Push dry-run:
-```bash
-/root/twinmind-split-kit/scripts/init_private_repo_and_push.sh --owner <your-github-user> --repo clawdbot-twinmind-split-kit --dry-run 1
-```
+Then run the post-migration smoke test in [docs/05-migration-guide.md](./docs/05-migration-guide.md).
 
-## Erforderliche Runtime-Secrets
+## Important provider/model rule
+
+The migration script writes explicit backend args into `clawdbot.json` such as:
+
+- `--executor-provider codex_cli`
+- `--executor-model gpt-5.3-codex`
+
+The backend parser uses explicit CLI args first, then env, then built-in defaults. That means changing only `ORCH_EXECUTOR_PROVIDER` or `ORCH_EXECUTOR_MODEL` in `.env` will not switch a migrated setup away from Codex. Edit the backend args first, then set the matching env vars for URL/keys if needed.
+
+Details: [docs/10-model-profiles-and-credentials.md](./docs/10-model-profiles-and-credentials.md)
+
+## What the scripts actually change
+
+`convert_clawdbot_to_split.sh` patches the default CLI backend to call:
+
+- `python3 <kit-root>/vendor/twinmind_orchestrator.py`
+- backend `--mode conversation`
+- `--routing-mode strict_split`
+- executor defaults `codex_cli` + `gpt-5.3-codex`
+
+It also writes migration artifacts:
+
+- `reports/convert-<migration-id>.json`
+- `backups/clawdbot.json.<migration-id>.bak`
+- `manifests/migration-<migration-id>.json`
+
+## Recommended reading map
+
+| Goal | Read this |
+|---|---|
+| understand wrapper and split modes | [docs/00-start-here.md](./docs/00-start-here.md), [docs/02-wrapper-architecture.md](./docs/02-wrapper-architecture.md), [docs/03-split-routing.md](./docs/03-split-routing.md) |
+| patch a live system | [docs/05-migration-guide.md](./docs/05-migration-guide.md), [docs/08-rollback.md](./docs/08-rollback.md) |
+| run a safe replica or do daily ops | [docs/06-operations-runbook.md](./docs/06-operations-runbook.md) |
+| debug failures | [docs/07-troubleshooting.md](./docs/07-troubleshooting.md) |
+| inspect script behavior and limits | [docs/09-script-reference.md](./docs/09-script-reference.md) |
+| switch executor profiles safely | [docs/10-model-profiles-and-credentials.md](./docs/10-model-profiles-and-credentials.md) |
+| source TwinMind secrets safely | [docs/11-token-sourcing-safe.md](./docs/11-token-sourcing-safe.md) |
+
+## Required runtime secrets
+
 - `TWINMIND_REFRESH_TOKEN`
 - `TWINMIND_FIREBASE_API_KEY`
 
-Details zur Beschaffung und sicheren Ablage:
-- [docs/11-token-sourcing-safe.md](./docs/11-token-sourcing-safe.md)
+How to obtain and store them safely: [docs/11-token-sourcing-safe.md](./docs/11-token-sourcing-safe.md)
 
-Kurzkontext:
-- Quelle ist typischerweise die eigene TwinMind Browser-Extension-Session (DevTools), z. B. `https://chromewebstore.google.com/detail/twinmind-chat-with-tabs-m/agpbjhhcmoanaljagpoheldgjhclepdj`.
+## Safety rules
+
+- run `plan` before `apply`
+- keep secrets out of git
+- keep runtime secrets in local `.env` files only
+- do not treat the replica flow as proof that live migration already happened
+
+## Repo structure
+
+- [docs/](./docs/) onboarding, migration, operations, troubleshooting
+- [scripts/](./scripts/) migration and bootstrap helpers
+- [vendor/](./vendor/) wrapper runtime used by the patched backend
+- [templates/](./templates/) patch/env templates
+- [manifests/](./manifests/) migration schema and generated manifests
+- [analysis/](./analysis/) implementation notes and line references
 
 ## Provenance
+
 - [vendor/PROVENANCE.md](./vendor/PROVENANCE.md)

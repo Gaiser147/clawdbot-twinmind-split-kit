@@ -1,31 +1,13 @@
 # Operations Runbook
 
-## Daily operator checks
-1. Verify wrapper script path exists.
-2. Verify required TwinMind env tokens are present.
-3. Verify backend output mode remains `json`.
-4. Verify no accidental config drift in `clawdbot.json`.
-5. Verify selected executor profile is still the intended one.
+This page covers safe replica work and ongoing operator checks. It is not the live patch procedure; for that use [05-migration-guide.md](./05-migration-guide.md).
 
-## Profile-specific preflight
+## Safe replica workflow
 
-### Codex profile (`ORCH_EXECUTOR_PROVIDER=codex_cli`)
-1. `codex` binary is available in `PATH` (or configured via `ORCH_EXECUTOR_CODEX_BIN`).
-2. Codex auth is valid (no expired login profile).
-3. `ORCH_EXECUTOR_MODEL` matches your intended Codex model.
+Use the replica when you want to inspect generated files, backend args, or env templates without touching the live runtime.
 
-### HTTP/OpenAI-compatible profile (z. B. Gemini-compatible endpoint)
-1. `ORCH_EXECUTOR_PROVIDER` is `openai`/`openai_codex`/`codex` or your HTTP provider.
-2. `ORCH_EXECUTOR_BASE_URL` is reachable and supports chat completions.
-3. API key is set (`ORCH_EXECUTOR_API_KEY` and/or `OPENAI_API_KEY`).
-4. `ORCH_EXECUTOR_MODEL` exists on your endpoint.
-
-### Shared runtime prerequisites
-1. Python dependency `requests` is installed for `vendor/twinmind_orchestrator.py`.
-2. `TWINMIND_REFRESH_TOKEN` and `TWINMIND_FIREBASE_API_KEY` are set.
-
-## Build a reproducible replica
 Plan:
+
 ```bash
 /root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
   --mode plan \
@@ -33,6 +15,7 @@ Plan:
 ```
 
 Apply:
+
 ```bash
 /root/twinmind-split-kit/scripts/bootstrap_clawdbot_replica.sh \
   --mode apply \
@@ -40,34 +23,85 @@ Apply:
   --yes
 ```
 
-## What replica script creates
+The replica creates a separate directory tree with placeholder config and example env files. It does not migrate your live setup.
+The generated config points at the copied runtime inside the replica tree, not back at the kit checkout.
+
+## What the replica contains
+
 - `clawd/skills/twinmind-orchestrator/scripts/*`
 - `.clawdbot/clawdbot.json`
 - `.clawdbot/.env.example`
+- backend args pinned to `codex_cli` + `gpt-5.3-codex`
 
-## How to verify which executor path is active
-1. Inspect effective backend args/env (`ORCH_EXECUTOR_PROVIDER`, `ORCH_EXECUTOR_MODEL`).
-2. Check wrapper logs for executor events:
-   - Codex profile: executor event contains `provider=codex_cli`
-   - HTTP profile: executor event contains target `url` under `executor_request`
-3. Confirm route events (`router_decision`, `split_executor_bridge`) align with expected mode.
+## Routine operator checks
 
-<details>
-<summary><strong>Warum kann ein Request trotz strict_split nicht den Executor erreichen?</strong></summary>
+1. the backend script path still exists under `clawd/skills/twinmind-orchestrator/scripts`
+2. required TwinMind tokens are present
+3. backend output remains `json`
+4. no accidental drift happened in `clawdbot.json`
+5. the effective executor profile is still the intended one
 
-Typische Ursachen:
-- Request landet in Fastpath und umgeht Split-Loop.
-- Runtime bleibt in `conversation` ohne Tool-Intent.
-- `--force-split-default` wurde nicht genutzt und es fehlt expliziter Tool-Intent.
+## Profile-specific preflight
 
-</details>
+### Codex profile
 
-## Manual post-apply steps
-1. Fill real secrets in runtime `.env` (not in repo).
-2. Validate wrapper invocation manually.
-3. Confirm logs and session continuity behavior.
+Check:
 
-Weiter:
+1. `codex` is in `PATH` or `ORCH_EXECUTOR_CODEX_BIN` points to it
+2. Codex auth is still valid
+3. the model in the backend args matches the intended Codex model
+
+### HTTP/OpenAI-compatible profile
+
+Check:
+
+1. backend args no longer pin `--executor-provider codex_cli`
+2. `ORCH_EXECUTOR_BASE_URL` points at a working OpenAI-compatible endpoint
+3. API auth is present
+4. the requested model exists on that endpoint
+
+## Verify which executor path is active
+
+Inspect the latest wrapper log:
+
+```bash
+CFG="${CFG:-$HOME/.clawdbot/clawdbot.json}"
+RUNTIME_ROOT="$(dirname "$CFG")"
+LATEST="$(ls -1t "$RUNTIME_ROOT"/twinmind-orchestrator/logs/*.jsonl | head -n 1)"
+rg -n 'executor_request|executor_response|router_decision' "$LATEST"
+```
+
+Interpretation:
+
+- Codex path: `executor_request` shows `provider=codex_cli`
+- HTTP path: `executor_request` shows the HTTP provider and a request URL
+- split path: `router_decision` shows `split_executor_bridge`
+- conversation path: `router_decision` shows `twinmind_conversation`
+
+## Changing profiles safely
+
+When switching away from the migration default, change the backend args first and env second.
+
+1. edit `agents.defaults.cliBackends.twinmind-cli.args`
+2. replace `--executor-provider` and `--executor-model`
+3. add/set `ORCH_EXECUTOR_BASE_URL` and API key env vars if the new profile is HTTP-based
+4. run the smoke test from [05-migration-guide.md](./05-migration-guide.md)
+
+## Channel limitations to remember
+
+- WhatsApp is the only channel with explicit inbound metadata parsing and reply-target handling in the wrapper.
+- Non-WhatsApp gateways may still work for plain text, but route-specific behavior should be treated as unverified.
+- Telegram is not a documented transport target in this repo.
+
+## Shared runtime prerequisites
+
+- Python `requests` is installed for the copied `twinmind_orchestrator.py` runtime under the target app tree
+- `TWINMIND_REFRESH_TOKEN` is set
+- `TWINMIND_FIREBASE_API_KEY` is set
+
+## Deep references
+
 - [07-troubleshooting.md](./07-troubleshooting.md)
+- [09-script-reference.md](./09-script-reference.md)
 - [10-model-profiles-and-credentials.md](./10-model-profiles-and-credentials.md)
 - [11-token-sourcing-safe.md](./11-token-sourcing-safe.md)

@@ -1,116 +1,118 @@
 # Model Profiles and Credential Mapping
 
-Zurueck: [README](../README.md) | Weiter: [11-token-sourcing-safe.md](./11-token-sourcing-safe.md)
+Back: [README](../README.md) | Next: [11-token-sourcing-safe.md](./11-token-sourcing-safe.md)
 
-Diese Seite beschreibt, wie `strict_split` mit unterschiedlichen Executor-Modellen betrieben wird, ohne Codeaenderung am Wrapper.
+This page explains how executor selection really works in the wrapper and how to switch profiles without fighting backend arg precedence.
 
-## Kurzfassung
-- Standard aus den Skripten: `codex_cli` + `gpt-5.3-codex`
-- Alternative: OpenAI-kompatibler HTTP-Executor (z. B. Gemini-kompatibles Endpoint)
-- TwinMind Tokens (`TWINMIND_REFRESH_TOKEN`, `TWINMIND_FIREBASE_API_KEY`) bleiben in beiden Faellen erforderlich.
+## Short version
 
-## Entscheidungsbaum
-```mermaid
-flowchart TD
-    A[Willst du strict_split nutzen?] -->|Nein| B[conversation / legacy Pfad]
-    A -->|Ja| C{Executor lokal oder HTTP?}
-    C -->|Lokal| D[Codex CLI Profil]
-    C -->|HTTP| E[OpenAI-kompatibles Profil]
-    D --> F[ORCH_EXECUTOR_PROVIDER=codex_cli]
-    E --> G[ORCH_EXECUTOR_PROVIDER=openai]
-```
+- script defaults are `codex_cli` + `gpt-5.3-codex`
+- migrated configs pin provider/model in backend CLI args
+- backend precedence is `CLI args > env > built-in defaults`
+- therefore provider/model switching after migration requires editing backend args, not only `.env`
 
-## Profil 1: Codex (Default)
+## The precedence rule that matters
 
-### Minimal-Konfiguration
-```env
-ORCH_EXECUTOR_PROVIDER=codex_cli
-ORCH_EXECUTOR_MODEL=gpt-5.3-codex
-```
+`vendor/twinmind_orchestrator.py` defines executor settings from CLI arguments whose defaults come from env vars. In practice that means:
 
-### Voraussetzungen
-- `codex` CLI ist installiert und im `PATH`.
-- Codex Auth ist aktiv.
-- Modellzugriff fuer `ORCH_EXECUTOR_MODEL` ist vorhanden.
-- kein statischer `OPENAI_API_KEY` noetig fuer `codex_cli`.
+1. if the backend config passes `--executor-provider` or `--executor-model`, those values win
+2. env vars are used only when the backend config does not pass those args
+3. built-in defaults apply only when neither CLI args nor env vars provide a value
 
-### Auth-Quelle fuer Codex 5.3 im Split-Pfad
-- Bei `ORCH_EXECUTOR_PROVIDER=codex_cli` nutzt der Wrapper den lokalen `codex exec`-Pfad.
-- Die Auth kommt aus der Codex-CLI-Login-Session (OAuth), nicht aus `ORCH_EXECUTOR_API_KEY`.
-- Empfehlung fuer das Standardprofil `gpt-5.3-codex`: Codex-CLI eingeloggt halten und keine statischen Keys in `.env` erzwingen.
+The migration and replica scripts both write explicit args for:
 
-<details>
-<summary><strong>Wann ist Codex die bessere Wahl?</strong></summary>
+- `--executor-provider codex_cli`
+- `--executor-model gpt-5.3-codex`
 
-Codex ist sinnvoll, wenn du den lokalen CLI-Pfad bereits stabil betreibst und eine reproduzierbare Basis-Migration willst.
+So this will not switch a migrated setup by itself:
 
-**Beispiel:**
-- Team standardisiert auf ein internes Linux-Setup mit vorinstallierter Codex-CLI.
-- Ziel ist ein einheitlicher Default, den alle ohne zusaetzliche HTTP-Endpoint-Konfiguration nutzen.
-
-</details>
-
-## Profil 2: OpenAI-kompatibler HTTP-Executor (z. B. Gemini)
-
-### Minimal-Konfiguration
 ```env
 ORCH_EXECUTOR_PROVIDER=openai
-ORCH_EXECUTOR_MODEL=<dein-modellname>
-ORCH_EXECUTOR_BASE_URL=<dein-openai-kompatibles-base-url>
-ORCH_EXECUTOR_API_KEY=<dein-api-key>
+ORCH_EXECUTOR_MODEL=<other-model>
 ```
 
-### Voraussetzungen
-- Endpoint ist kompatibel zum Chat-Completions-Format.
-- API-Key ist gueltig.
-- Modellname ist auf dem Endpoint verfuegbar.
+You must change the backend args first.
 
-### Key-Aufloesung im HTTP/OpenAI-kompatiblen Pfad
-Wenn `ORCH_EXECUTOR_PROVIDER` auf `openai`/`openai_codex`/`codex` steht, wird die Auth in dieser Reihenfolge gesucht:
-1. expliziter Executor-Key (`--executor-api-key` / `ORCH_EXECUTOR_API_KEY`)
+## Profile 1: Codex CLI default
+
+### Effective backend shape
+
+```text
+--executor-provider codex_cli
+--executor-model gpt-5.3-codex
+```
+
+### Requirements
+
+- `codex` is installed and reachable
+- Codex auth is valid on the same machine/user as the wrapper runtime
+- the chosen Codex model is available to that account
+
+### Auth behavior
+
+For `codex_cli`, the wrapper uses local `codex exec`. HTTP API keys are not the main auth path for this profile.
+
+## Profile 2: HTTP / OpenAI-compatible executor
+
+### When this profile works
+
+Use this only after you have replaced the pinned backend args.
+
+Example target state:
+
+```text
+--executor-provider openai
+--executor-model <your-model>
+```
+
+Matching env:
+
+```env
+ORCH_EXECUTOR_BASE_URL=<openai-compatible-base-url>
+ORCH_EXECUTOR_API_KEY=<api-key>
+```
+
+The scripts do not pin `--executor-base-url`, so leaving that in `.env` is fine.
+
+## Safe switching procedure
+
+1. edit `agents.defaults.cliBackends.twinmind-cli.args` in the live config
+2. replace `--executor-provider` and `--executor-model`
+3. set `ORCH_EXECUTOR_BASE_URL` and auth env vars if the new provider is HTTP-based
+4. rerun the smoke test from [05-migration-guide.md](./05-migration-guide.md)
+5. confirm `executor_request` in the log shows the intended provider/model
+
+## HTTP auth resolution inside the wrapper
+
+Once the provider is an HTTP-style executor such as `openai`, `openai_codex`, or `codex`, auth resolution is:
+
+1. `cfg.executor_api_key` if present
 2. `OPENAI_API_KEY`
-3. `ORCH_EXECUTOR_API_KEY` aus env (falls nicht schon explizit gesetzt)
-4. Codex-CLI OAuth Access Token aus lokalem Auth-Profil
+3. `ORCH_EXECUTOR_API_KEY`
+4. Codex OAuth access token from the local auth profile
 
-Damit ist Codex-OAuth auch im HTTP-Pfad moeglich, wenn keine statischen Keys gesetzt sind.
+Important nuance: if the backend config ever passes `--executor-api-key`, that value will also beat env vars for the same reason as provider/model.
 
-<details>
-<summary><strong>Was bedeutet "OpenAI-kompatibel" in diesem Repo?</strong></summary>
+## Variable mapping
 
-Der Wrapper sendet Executor-HTTP-Requests an:
-- `<ORCH_EXECUTOR_BASE_URL>/chat/completions`
-
-Das Zielsystem muss daher ein kompatibles Request/Response-Schema liefern, damit der Wrapper die Antwort als Text extrahieren kann.
-
-</details>
-
-<details>
-<summary><strong>Beispielablauf: Migration mit Codex-Default, danach auf Gemini umstellen</strong></summary>
-
-1. Migration normal ausfuehren (schreibt Codex-Defaultwerte).
-2. Danach in der Runtime `.env` die `ORCH_EXECUTOR_*` Werte auf HTTP-Profil setzen.
-3. In Logs pruefen, dass `executor_request` nicht mehr `provider=codex_cli` zeigt, sondern HTTP-URL.
-
-</details>
-
-## Mapping: Variable -> Funktion
-
-| Variable | Bedeutung |
+| Variable | Meaning |
 |---|---|
-| `ORCH_ROUTING_MODE` | Steuerung von `legacy` vs `strict_split` |
-| `ORCH_EXECUTOR_PROVIDER` | Entscheidet CLI- vs HTTP-Executor-Pfad |
-| `ORCH_EXECUTOR_MODEL` | Modell fuer den Executor |
-| `ORCH_EXECUTOR_BASE_URL` | HTTP-Basis fuer kompatible Endpoints |
-| `ORCH_EXECUTOR_API_KEY` | Auth fuer HTTP-Executor |
-| `OPENAI_API_KEY` | Alternativer Key fuer `openai`-artige Provider |
+| `ORCH_ROUTING_MODE` | `legacy` or `strict_split` when not pinned by backend args |
+| `ORCH_EXECUTOR_PROVIDER` | executor type when not pinned by backend args |
+| `ORCH_EXECUTOR_MODEL` | executor model when not pinned by backend args |
+| `ORCH_EXECUTOR_BASE_URL` | HTTP base URL for `/chat/completions` |
+| `ORCH_EXECUTOR_API_KEY` | generic executor API key |
+| `OPENAI_API_KEY` | fallback key for OpenAI-like HTTP providers |
 
-## Sicherheits-Hinweise
-- Niemals echte Keys/Tokens committen.
-- Keine Klartext-Secrets in Reports, Issues oder Screenshots.
-- Rotation bei Verdacht auf Leck.
+## Common mistakes
 
-Weiter:
+- changing only `.env` after a migrated config already pins provider/model
+- assuming replica changes affect the live runtime
+- assuming Telegram or another gateway transport changes executor selection behavior
+
+## Related docs
+
 - [04-config-reference.md](./04-config-reference.md)
+- [05-migration-guide.md](./05-migration-guide.md)
 - [06-operations-runbook.md](./06-operations-runbook.md)
 - [07-troubleshooting.md](./07-troubleshooting.md)
-- [11-token-sourcing-safe.md](./11-token-sourcing-safe.md)

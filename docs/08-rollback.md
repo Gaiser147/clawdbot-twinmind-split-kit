@@ -14,9 +14,11 @@
 
 ## What rollback restores
 - `clawdbot.json` from recorded backup path
-- `.env` only if env backup exists in manifest
+- `.env` from backup if one existed before migration
+- a migration-created `.env` is removed again when it still matches the applied checksum
 
 ## Verification checklist
-1. Compare current config checksum with backup checksum.
-2. Verify backend references are restored to pre-migration state.
-3. Confirm runtime responds as before migration.
+1. Rollback refuses to run if `clawdbot.json` drifted from the manifest `after_checksum`.
+2. If migration managed `.env`, rollback also checks the recorded env checksum before restoring or deleting it.
+3. Verify backend references are restored to pre-migration state.
+4. Confirm runtime responds as before migration.
