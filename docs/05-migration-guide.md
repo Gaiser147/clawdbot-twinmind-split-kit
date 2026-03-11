@@ -6,9 +6,28 @@ This page is only for patching a real local config. If you want a safe dry-run e
 
 Patch an existing Clawdbot/OpenClaw/Moltbook/Moltbot-style config so it calls a copied `twinmind_orchestrator.py` runtime inside the target app tree and writes rollback artifacts.
 
-## Script
+## Scripts
 
 - `scripts/convert_clawdbot_to_split.sh`
+- `scripts/ai_easy_setup.sh` for the guided `preflight -> plan -> apply -> smoke-test` wrapper
+- `scripts/smoke_test_migration.sh` for reusable verification
+
+## AI-assisted setup wrapper
+
+If you want a terminal AI tool to drive the migration, use the repo-owned prompt in [../prompts/terminal-ai-easy-setup.md](../prompts/terminal-ai-easy-setup.md) and let it call:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode preflight --print-json
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode plan --print-json
+```
+
+Only after you explicitly approve the plan should it run:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode apply --yes --print-json
+```
+
+That wrapper still delegates the real patching work to `convert_clawdbot_to_split.sh`; it does not implement a second migration path.
 
 ## Modes
 
@@ -54,6 +73,12 @@ If `--config` is omitted, the script auto-detects common config paths, including
 
 If `--env` is omitted, the neighboring `.env` next to the detected config is used.
 
+If you want the same flow in a machine-readable wrapper for a terminal AI tool, use:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode plan --print-json
+```
+
 ## Apply
 
 ```bash
@@ -85,6 +110,18 @@ Migration artifacts:
 Existing unknown keys under `agents.defaults.cliBackends.twinmind-cli` are preserved. The migration only overwrites the managed TwinMind backend fields.
 
 ## Post-migration smoke test
+
+Reusable helper:
+
+```bash
+/root/twinmind-split-kit/scripts/smoke_test_migration.sh --print-json
+```
+
+If you are using the AI wrapper flow, this step is already covered by:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode smoke-test --print-json
+```
 
 Run the migrated backend exactly as the config now defines it, then inspect the wrapper log. If your live config is not `~/.clawdbot/clawdbot.json`, set `CFG` to the real path first.
 

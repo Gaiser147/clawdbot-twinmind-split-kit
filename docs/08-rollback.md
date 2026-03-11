@@ -17,6 +17,12 @@
 - `.env` from backup if one existed before migration
 - a migration-created `.env` is removed again when it still matches the applied checksum
 
+## What rollback does not remove automatically
+
+- copied runtime files under `<target-app-root>/clawd/skills/twinmind-orchestrator/scripts`
+
+Rollback restores config and env state. It does not currently delete the copied runtime files from the target app tree for you.
+
 ## Verification checklist
 1. Rollback refuses to run if `clawdbot.json` drifted from the manifest `after_checksum`.
 2. If migration managed `.env`, rollback also checks the recorded env checksum before restoring or deleting it.

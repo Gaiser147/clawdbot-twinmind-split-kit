@@ -62,6 +62,62 @@ Purpose: build a reproducible local replica tree with vendored wrapper files and
 - reports include the copied runtime location under `clawd/skills/twinmind-orchestrator/scripts`
 - writes `.env.example`, not live secrets
 
+## `scripts/ai_easy_setup.sh`
+
+Purpose: provide one machine-friendly entrypoint for terminal AI tools and human operators who want preflight, plan, replica, apply, and smoke-test in one place.
+
+### Modes
+
+- `preflight`: checks local commands, Python dependency, config shape, and TwinMind secrets
+- `plan`: runs the live migration plan and returns a JSON summary
+- `replica`: creates a safe local replica under a chosen target root and returns a JSON summary
+- `apply`: runs live migration and then the smoke test unless `--no-smoke` is set
+- `smoke-test`: delegates directly to `scripts/smoke_test_migration.sh`
+
+### Useful flags
+
+- `--config <path>`
+- `--env <path>`
+- `--target-root <path>`
+- `--report-dir <path>`
+- `--print-json`
+- `--yes`
+- `--no-require-secrets`
+- `--no-smoke`
+
+### Behavior notes
+
+- keeps its own reports outside the repo worktree by default under `/tmp/twinmind-split-kit-<timestamp>/`
+- does not invent a second migration path; it delegates to the existing converter and replica scripts
+- stops early on missing secrets or incompatible config shape for live migration
+
+## `scripts/smoke_test_migration.sh`
+
+Purpose: execute the patched backend from config and verify expected wrapper log signals.
+
+### Success criteria
+
+- detects the patched backend from config
+- derives `--runtime-root` from backend args when present
+- executes a tool-intent query against the migrated backend
+- confirms these log signals in the latest wrapper log:
+  - split routing (`tool_bridge_override` or `split_executor_bridge`)
+  - `executor_request`
+  - `executor_response`
+  - `final` or `final_after_skill_run`
+
+### Useful flags
+
+- `--config <path>`
+- `--report-json <path>`
+- `--query <text>`
+- `--log-timeout-sec <sec>`
+- `--print-json`
+
+### Current limit
+
+- the smoke query verifies split/executor reachability, not application-specific skills such as Sharezone or Schulcloud
+
 ## `scripts/create_private_github_repo.sh`
 
 Purpose: create a private GitHub repo for this kit.

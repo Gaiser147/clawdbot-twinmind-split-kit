@@ -23,8 +23,18 @@ Apply:
   --yes
 ```
 
-The replica creates a separate directory tree with placeholder config and example env files. It does not migrate your live setup.
-The generated config points at the copied runtime inside the replica tree, not back at the kit checkout.
+The replica creates a separate directory tree with placeholder config and example env files. It does not migrate your live setup. The generated config points at the copied runtime inside the replica tree, not back at the kit checkout.
+
+For terminal AI tools, the same flow can be wrapped with:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh \
+  --mode replica \
+  --target-root /tmp/twinmind-split-replica \
+  --print-json
+```
+
+That wrapper writes the replica into a temp-like target by default and returns a machine-readable report.
 
 ## What the replica contains
 
