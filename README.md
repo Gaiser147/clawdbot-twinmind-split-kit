@@ -8,6 +8,41 @@ TwinMind Split Kit adds the TwinMind wrapper backend to an existing Clawdbot-sty
 3. patch a live config with rollback artifacts
 4. let a terminal AI drive the same flow through repo-owned scripts
 
+## [Easy Setup for Terminal AI Tools](./prompts/terminal-ai-easy-setup.md)
+
+> Start here if you want Codex, Claude Code, Gemini CLI, or another terminal agent to clone this repo and drive the migration for you.
+
+**Fast path**
+
+```bash
+scripts/ai_easy_setup.sh preflight
+scripts/ai_easy_setup.sh plan
+scripts/ai_easy_setup.sh apply --yes
+```
+
+<details>
+<summary><strong>Click to expand the safe AI-driven flow</strong></summary>
+
+1. clone the repo and `cd` into it
+2. run `scripts/ai_easy_setup.sh preflight`
+3. run `scripts/ai_easy_setup.sh plan`
+4. stop and review the summary
+5. run `scripts/ai_easy_setup.sh apply --yes` only after explicit confirmation
+6. let the wrapper run the smoke test automatically
+
+</details>
+
+<details>
+<summary><strong>Click to expand limits and prerequisites</strong></summary>
+
+- Linux + local shell only
+- the scripts do not fetch secrets for you
+- missing TwinMind secrets, missing `codex`, or missing `timeout` should stop the flow early
+- OpenClaw / Moltbook / Moltbot are only supported when they still use the same Clawdbot-style config shape
+- Telegram and other non-WhatsApp channels remain best effort for plain text only
+
+</details>
+
 ## Before you choose a path
 
 This repo does not change your live setup by itself, but these commands do write files:
@@ -28,29 +63,6 @@ Everything else in the documented flow is non-mutating.
 | Moltbook/Moltbot config paths | limited support | converter can auto-detect common `moltbook`/`moltbot` config filenames and patch the same Clawdbot-style JSON shape |
 | WhatsApp gateway usage | supported | wrapper has explicit inbound parsing and reply-target handling for WhatsApp metadata |
 | Telegram or other non-WhatsApp gateways | best effort for plain text only | no Telegram-specific transport handling, auto-targeting, or docs-tested migration path |
-
-## Easy Setup for Terminal AI Tools
-
-If you want Codex, Claude Code, Gemini CLI, or a similar terminal agent to clone this repo and drive the migration for you, use the repo-owned prompt here:
-
-- [prompts/terminal-ai-easy-setup.md](./prompts/terminal-ai-easy-setup.md)
-
-The intended safe flow is:
-
-1. clone the repo and `cd` into it
-2. run `scripts/ai_easy_setup.sh preflight`
-3. run `scripts/ai_easy_setup.sh plan`
-4. stop and review the summary
-5. run `scripts/ai_easy_setup.sh apply --yes` only after explicit confirmation
-6. let the wrapper run the smoke test automatically
-
-Important limits for AI-led setup:
-
-- Linux + local shell only
-- the scripts do not fetch secrets for you
-- missing TwinMind secrets, missing `codex`, or missing `timeout` should stop the flow early
-- OpenClaw / Moltbook / Moltbot are only supported when they still use the same Clawdbot-style config shape
-- Telegram and other non-WhatsApp channels remain best effort for plain text only
 
 ## Quickstart
 
