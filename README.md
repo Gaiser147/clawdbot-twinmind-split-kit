@@ -10,7 +10,18 @@ TwinMind Split Kit adds the TwinMind wrapper backend to an existing Clawdbot-sty
 
 ## [Easy Setup for Terminal AI Tools](./prompts/terminal-ai-easy-setup.md)
 
+<table>
+<tr>
+<td valign="top">
+
 > Start here if you want Codex, Claude Code, Gemini CLI, or another terminal agent to clone this repo and drive the migration for you.
+
+</td>
+<td align="right" valign="top" width="120">
+  <img src="https://raw.githubusercontent.com/Gaiser147/clawdbot-twinmind-split-kit/refs/heads/main/logoTermAI.png" alt="Terminal AI easy setup icon" width="96">
+</td>
+</tr>
+</table>
 
 **Copy/paste this prompt into your terminal AI**
 
