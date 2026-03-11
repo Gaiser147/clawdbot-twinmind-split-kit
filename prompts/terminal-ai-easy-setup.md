@@ -50,6 +50,14 @@ Optional safe trial:
 4. `apply`
 5. `smoke-test`
 
+## Fast path
+
+```bash
+scripts/ai_easy_setup.sh preflight
+scripts/ai_easy_setup.sh plan
+scripts/ai_easy_setup.sh apply --yes
+```
+
 ## What the AI should not improvise
 
 - custom migration scripts
