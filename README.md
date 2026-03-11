@@ -1,5 +1,5 @@
 # TwinMind Split Kit
-[repo banner / clawdbotXtwinmind](https://raw.githubusercontent.com/Gaiser147/clawdbot-twinmind-split-kit/refs/heads/main/Drawing%2010%20(2).png)
+![repo banner](https://raw.githubusercontent.com/Gaiser147/clawdbot-twinmind-split-kit/refs/heads/main/Drawing%2010%20(2).png)
 
 Diese Startseite fuehrt neue Nutzer Schritt fuer Schritt durch Split-Logik, TwinMind Wrapper und sichere Migration.
 
