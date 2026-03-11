@@ -8,14 +8,26 @@
     "agents.defaults.cliBackends.twinmind-cli": {
       "command": "python3",
       "args": [
-        "<KIT_ROOT>/vendor/twinmind_orchestrator.py",
+        "<TARGET_RUNTIME_SCRIPT>",
+        "--runtime-root", "<TARGET_CONFIG_DIR>",
+        "--workspace-root", "<TARGET_APP_ROOT>/clawd",
         "--mode", "conversation",
         "--routing-mode", "strict_split",
         "--search-web", "1",
         "--search-memories", "1",
         "--allow-shell", "0",
         "--allow-writes", "0",
-        "--output", "json"
+        "--output", "json",
+        "--max-steps", "4",
+        "--max-tool-calls", "4",
+        "--repair-attempts", "1",
+        "--llm-timeout-sec", "120",
+        "--tool-timeout-sec", "60",
+        "--executor-provider", "codex_cli",
+        "--executor-model", "gpt-5.3-codex",
+        "--executor-max-steps", "4",
+        "--executor-max-tool-calls", "6",
+        "--executor-use-twinmind-planner", "1"
       ],
       "output": "json",
       "input": "arg",
@@ -24,8 +36,23 @@
       "serialize": true
     }
   },
+  "runtime_copy": {
+    "source_root": "<KIT_ROOT>/vendor",
+    "target_runtime_dir": "<TARGET_APP_ROOT>/clawd/skills/twinmind-orchestrator/scripts",
+    "files": [
+      "twinmind_orchestrator.py",
+      "twinmind_memory_sync.py",
+      "twinmind_memory_query.py"
+    ]
+  },
+  "validation": {
+    "required_existing_objects": [
+      "agents",
+      "agents.defaults"
+    ]
+  },
   "merge_rules": {
-    "create_missing_objects": true,
+    "create_missing_objects": "validated_subtrees_only",
     "preserve_unrelated_keys": true,
     "idempotent": true
   }

@@ -8,6 +8,11 @@ REPORT_JSON=""
 YES=0
 WRITE_ENV_TEMPLATE=1
 WRITE_CLAWDBOT_CONFIG=1
+RUNTIME_VENDOR_FILES=(
+  "twinmind_orchestrator.py"
+  "twinmind_memory_sync.py"
+  "twinmind_memory_query.py"
+)
 
 usage() {
   cat <<USAGE
@@ -32,6 +37,13 @@ err() {
 
 ts_compact() {
   date -u +"%Y%m%dT%H%M%SZ"
+}
+
+verify_runtime_sources() {
+  local vendor_file
+  for vendor_file in "${RUNTIME_VENDOR_FILES[@]}"; do
+    [[ -f "$SOURCE_KIT/vendor/$vendor_file" ]] || err "Missing vendor file: $SOURCE_KIT/vendor/$vendor_file"
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -85,36 +97,43 @@ if [[ -z "$REPORT_JSON" ]]; then
 fi
 
 VENDOR_DIR="$SOURCE_KIT/vendor"
-[[ -f "$VENDOR_DIR/twinmind_orchestrator.py" ]] || err "Missing vendor file: twinmind_orchestrator.py"
-[[ -f "$VENDOR_DIR/twinmind_memory_sync.py" ]] || err "Missing vendor file: twinmind_memory_sync.py"
-[[ -f "$VENDOR_DIR/twinmind_memory_query.py" ]] || err "Missing vendor file: twinmind_memory_query.py"
+verify_runtime_sources
 
-TARGET_SKILL_DIR="$TARGET_ROOT/clawd/skills/twinmind-orchestrator/scripts"
+TARGET_RUNTIME_DIR="$TARGET_ROOT/clawd/skills/twinmind-orchestrator/scripts"
+TARGET_RUNTIME_SCRIPT="$TARGET_RUNTIME_DIR/twinmind_orchestrator.py"
 TARGET_CLAWDBOT_DIR="$TARGET_ROOT/.clawdbot"
 TARGET_CONFIG="$TARGET_CLAWDBOT_DIR/clawdbot.json"
 TARGET_ENV_EXAMPLE="$TARGET_CLAWDBOT_DIR/.env.example"
 
-python3 - "$REPORT_JSON" "$MODE" "$TARGET_ROOT" "$TARGET_SKILL_DIR" "$TARGET_CONFIG" "$TARGET_ENV_EXAMPLE" "$WRITE_ENV_TEMPLATE" "$WRITE_CLAWDBOT_CONFIG" <<'PY'
+python3 - "$REPORT_JSON" "$MODE" "$TARGET_ROOT" "$TARGET_RUNTIME_DIR" "$TARGET_RUNTIME_SCRIPT" "$TARGET_CONFIG" "$TARGET_ENV_EXAMPLE" "$WRITE_ENV_TEMPLATE" "$WRITE_CLAWDBOT_CONFIG" <<'PY'
 import json, sys, datetime
 (
   report_path,
   mode,
   target_root,
-  target_skill_dir,
+  target_runtime_dir,
+  target_runtime_script,
   target_config,
   target_env_example,
   write_env,
   write_cfg,
-) = sys.argv[1:9]
+) = sys.argv[1:10]
 report = {
-  "timestamp_utc": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+  "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
   "mode": mode,
   "target_root": target_root,
+  "target_runtime_dir": target_runtime_dir,
+  "target_runtime_script": target_runtime_script,
+  "runtime_vendor_files": [
+    "twinmind_orchestrator.py",
+    "twinmind_memory_sync.py",
+    "twinmind_memory_query.py",
+  ],
   "actions": [
-    {"type": "mkdir", "path": target_skill_dir},
-    {"type": "copy", "src": "vendor/twinmind_orchestrator.py", "dst": f"{target_skill_dir}/twinmind_orchestrator.py"},
-    {"type": "copy", "src": "vendor/twinmind_memory_sync.py", "dst": f"{target_skill_dir}/twinmind_memory_sync.py"},
-    {"type": "copy", "src": "vendor/twinmind_memory_query.py", "dst": f"{target_skill_dir}/twinmind_memory_query.py"},
+    {"type": "mkdir", "path": target_runtime_dir},
+    {"type": "copy", "src": "vendor/twinmind_orchestrator.py", "dst": f"{target_runtime_dir}/twinmind_orchestrator.py"},
+    {"type": "copy", "src": "vendor/twinmind_memory_sync.py", "dst": f"{target_runtime_dir}/twinmind_memory_sync.py"},
+    {"type": "copy", "src": "vendor/twinmind_memory_query.py", "dst": f"{target_runtime_dir}/twinmind_memory_query.py"},
   ],
   "write_env_template": bool(int(write_env)),
   "write_clawdbot_config": bool(int(write_cfg)),
@@ -136,10 +155,10 @@ fi
 
 [[ "$YES" -eq 1 ]] || err "Apply requires --yes"
 
-mkdir -p "$TARGET_SKILL_DIR" "$TARGET_CLAWDBOT_DIR"
-cp "$VENDOR_DIR/twinmind_orchestrator.py" "$TARGET_SKILL_DIR/twinmind_orchestrator.py"
-cp "$VENDOR_DIR/twinmind_memory_sync.py" "$TARGET_SKILL_DIR/twinmind_memory_sync.py"
-cp "$VENDOR_DIR/twinmind_memory_query.py" "$TARGET_SKILL_DIR/twinmind_memory_query.py"
+mkdir -p "$TARGET_RUNTIME_DIR" "$TARGET_CLAWDBOT_DIR"
+for vendor_file in "${RUNTIME_VENDOR_FILES[@]}"; do
+  cp "$VENDOR_DIR/$vendor_file" "$TARGET_RUNTIME_DIR/$vendor_file"
+done
 
 if [[ "$WRITE_CLAWDBOT_CONFIG" == "1" ]]; then
   python3 - "$TARGET_CONFIG" "$TARGET_ROOT" <<'PY'
@@ -166,6 +185,8 @@ cfg = {
           "command": "python3",
           "args": [
             orch,
+            "--runtime-root", os.path.join(target_root, ".clawdbot"),
+            "--workspace-root", workspace,
             "--mode", "conversation",
             "--routing-mode", "strict_split",
             "--search-web", "1",

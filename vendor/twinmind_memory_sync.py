@@ -16,14 +16,28 @@ import requests
 DEFAULT_API_BASE = "https://api.thirdear.live"
 DEFAULT_FIREBASE_API_KEY = ""
 DEFAULT_USER_AGENT = "TwinMind/1.0.64"
+DEFAULT_RUNTIME_ROOT = Path("/root/.clawdbot")
 
+
+def detect_runtime_root() -> Path:
+    for key in ("TWINMIND_RUNTIME_ROOT", "CLAWDBOT_RUNTIME_ROOT"):
+        raw = (os.getenv(key) or "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    cfg_path = (os.getenv("CLAWDBOT_CONFIG_PATH") or "").strip()
+    if cfg_path:
+        return Path(cfg_path).expanduser().parent
+    return DEFAULT_RUNTIME_ROOT
+
+
+RUNTIME_ROOT = detect_runtime_root()
 ENV_PATHS = [
-    "/root/.clawdbot/.env",
-    "/root/.env",
+    str(RUNTIME_ROOT / ".env"),
+    str(RUNTIME_ROOT.parent / ".env"),
     ".env",
 ]
 
-STATE_DIR = Path("/root/.clawdbot/twinmind-orchestrator/memory")
+STATE_DIR = RUNTIME_ROOT / "twinmind-orchestrator" / "memory"
 INDEX_PATH = STATE_DIR / "index.json"
 STATE_PATH = STATE_DIR / "state.json"
 RAW_DIR = STATE_DIR / "raw"
@@ -358,4 +372,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

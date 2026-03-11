@@ -41,38 +41,27 @@ BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 DEFAULT_EXECUTOR_PROVIDER = "codex_cli"
 DEFAULT_EXECUTOR_MODEL = "gpt-5.3-codex"
 DEFAULT_EXECUTOR_BASE_URL = "https://api.openai.com/v1"
-AUTH_PROFILE_PATHS = [
-    "/root/.clawdbot/agents/main/agent/auth-profiles.json",
-    "/root/.codex/auth-profiles.json",
-]
+DEFAULT_RUNTIME_ROOT = Path("/root/.clawdbot")
+DEFAULT_WORKSPACE_ROOT = Path("/root/clawd")
+SCRIPT_PATH = Path(__file__).resolve()
 
-STATE_DIR = Path("/root/.clawdbot/twinmind-orchestrator")
-LOCK_PATH = STATE_DIR / "run.lock"
-SESSIONS_PATH = STATE_DIR / "sessions.json"
-LOG_DIR = STATE_DIR / "logs"
-MEMORY_DIR = STATE_DIR / "memory"
-MEMORY_INDEX_PATH = MEMORY_DIR / "index.json"
-MEMORY_STATE_PATH = MEMORY_DIR / "state.json"
-WEBSEARCH_STATE_PATH = STATE_DIR / "websearch_state.json"
-WEBSEARCH_LOCK_PATH = STATE_DIR / "websearch.lock"
-
-ENV_PATHS = [
-    "/root/.clawdbot/.env",
-    "/root/.env",
-    ".env",
-]
-
-HEARTBEAT_PATHS = [
-    "/root/clawd/HEARTBEAT.md",
-    "/root/HEARTBEAT.md",
-    "HEARTBEAT.md",
-]
-
-LOCAL_PROFILE_PATHS = [
-    "/root/.clawdbot/twinmind-profile.local.json",
-    "/root/.clawdbot/twinmind-profile.local.txt",
-]
-PERSONAL_MEMORY_PIPELINE = "/root/.clawdbot/scripts/personal-memory-pipeline.py"
+AUTH_PROFILE_PATHS: List[str] = []
+STATE_DIR = Path()
+LOCK_PATH = Path()
+SESSIONS_PATH = Path()
+LOG_DIR = Path()
+MEMORY_DIR = Path()
+MEMORY_INDEX_PATH = Path()
+MEMORY_STATE_PATH = Path()
+WEBSEARCH_STATE_PATH = Path()
+WEBSEARCH_LOCK_PATH = Path()
+ENV_PATHS: List[str] = []
+HEARTBEAT_PATHS: List[str] = []
+LOCAL_PROFILE_PATHS: List[str] = []
+PERSONAL_MEMORY_PIPELINE = ""
+RUNTIME_ROOT = DEFAULT_RUNTIME_ROOT
+WORKSPACE_ROOT = DEFAULT_WORKSPACE_ROOT
+SKILLS_ROOT = DEFAULT_WORKSPACE_ROOT / "skills"
 
 TOOL_EXPLICIT_RE = re.compile(
     r"\b(tool|tools|toolcall|tool call|skill_run|shell|read_file|terminal|command|befehl|datei|file|ls|cat|rg|grep|bash)\b",
@@ -118,6 +107,136 @@ AUDIO_ATTACHMENT_EXTENSIONS = (
     ".flac",
     ".webm",
 )
+TRANSPORT_HEADER_RE = re.compile(
+    r"^\[\s*(?P<channel>[A-Za-z][A-Za-z0-9_-]{1,31})\s+(?P<target>[^\]\s]+)(?:\s+(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?))?\]\s*(?P<rest>.*)$",
+    re.I,
+)
+
+
+def parse_transport_header_line(text: str) -> Optional[Dict[str, str]]:
+    if not text:
+        return None
+    m = TRANSPORT_HEADER_RE.match((text or "").strip())
+    if not m:
+        return None
+    return {
+        "channel": str(m.group("channel") or "").strip(),
+        "target": str(m.group("target") or "").strip(),
+        "timestamp": str(m.group("timestamp") or "").strip(),
+        "rest": str(m.group("rest") or "").strip(),
+    }
+
+
+def extract_transport_header(text: str) -> Optional[Dict[str, str]]:
+    if not text:
+        return None
+    for line in (text or "").splitlines():
+        header = parse_transport_header_line(line)
+        if header:
+            return header
+    return None
+
+
+def infer_transport_name(user_query: str = "") -> str:
+    for key in ("CLAWDBOT_CHANNEL", "CLAWDBOT_TRANSPORT", "TWINMIND_CHANNEL"):
+        raw = (getenv(key) or "").strip().lower()
+        if raw:
+            return raw
+    header = extract_transport_header(user_query or "")
+    if header:
+        return str(header.get("channel") or "").strip().lower()
+    return ""
+
+
+def looks_whatsapp_target(target: str) -> bool:
+    raw = (target or "").strip()
+    if not raw:
+        return False
+    if raw.endswith("@g.us") or raw.endswith("@c.us"):
+        return True
+    return bool(re.fullmatch(r"\+?\d{8,}", raw))
+
+
+def _guess_workspace_root() -> Path:
+    raw = (os.getenv("TWINMIND_WORKSPACE_ROOT") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    try:
+        if SCRIPT_PATH.parent.name == "scripts" and SCRIPT_PATH.parent.parent.name == "twinmind-orchestrator" and SCRIPT_PATH.parent.parent.parent.name == "skills":
+            return SCRIPT_PATH.parent.parent.parent.parent
+    except Exception:
+        pass
+    return DEFAULT_WORKSPACE_ROOT
+
+
+def _detect_runtime_root() -> Path:
+    for key in ("TWINMIND_RUNTIME_ROOT", "CLAWDBOT_RUNTIME_ROOT"):
+        raw = (os.getenv(key) or "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    cfg_path = (os.getenv("CLAWDBOT_CONFIG_PATH") or "").strip()
+    if cfg_path:
+        try:
+            return Path(cfg_path).expanduser().resolve().parent
+        except Exception:
+            return Path(cfg_path).expanduser().parent
+    return DEFAULT_RUNTIME_ROOT
+
+
+def skill_script_path(*parts: str) -> str:
+    return str(SKILLS_ROOT.joinpath(*parts))
+
+
+def init_runtime_paths(runtime_root: Optional[str] = None, workspace_root: Optional[str] = None) -> None:
+    global AUTH_PROFILE_PATHS
+    global STATE_DIR, LOCK_PATH, SESSIONS_PATH, LOG_DIR, MEMORY_DIR, MEMORY_INDEX_PATH, MEMORY_STATE_PATH
+    global WEBSEARCH_STATE_PATH, WEBSEARCH_LOCK_PATH, ENV_PATHS, HEARTBEAT_PATHS, LOCAL_PROFILE_PATHS
+    global PERSONAL_MEMORY_PIPELINE, RUNTIME_ROOT, WORKSPACE_ROOT, SKILLS_ROOT
+
+    RUNTIME_ROOT = Path(runtime_root).expanduser() if runtime_root else _detect_runtime_root()
+    WORKSPACE_ROOT = Path(workspace_root).expanduser() if workspace_root else _guess_workspace_root()
+    SKILLS_ROOT = WORKSPACE_ROOT / "skills"
+
+    os.environ["TWINMIND_RUNTIME_ROOT"] = str(RUNTIME_ROOT)
+    os.environ.setdefault("TWINMIND_WORKSPACE_ROOT", str(WORKSPACE_ROOT))
+
+    AUTH_PROFILE_PATHS = [
+        str(RUNTIME_ROOT / "agents" / "main" / "agent" / "auth-profiles.json"),
+        str(RUNTIME_ROOT / "agents" / "main" / "auth-profiles.json"),
+        "/root/.codex/auth.json",
+        "/root/.codex/auth-profiles.json",
+    ]
+
+    STATE_DIR = RUNTIME_ROOT / "twinmind-orchestrator"
+    LOCK_PATH = STATE_DIR / "run.lock"
+    SESSIONS_PATH = STATE_DIR / "sessions.json"
+    LOG_DIR = STATE_DIR / "logs"
+    MEMORY_DIR = STATE_DIR / "memory"
+    MEMORY_INDEX_PATH = MEMORY_DIR / "index.json"
+    MEMORY_STATE_PATH = MEMORY_DIR / "state.json"
+    WEBSEARCH_STATE_PATH = STATE_DIR / "websearch_state.json"
+    WEBSEARCH_LOCK_PATH = STATE_DIR / "websearch.lock"
+
+    ENV_PATHS = [
+        str(RUNTIME_ROOT / ".env"),
+        str(RUNTIME_ROOT.parent / ".env"),
+        ".env",
+    ]
+
+    HEARTBEAT_PATHS = [
+        str(WORKSPACE_ROOT / "HEARTBEAT.md"),
+        str(RUNTIME_ROOT.parent / "HEARTBEAT.md"),
+        "HEARTBEAT.md",
+    ]
+
+    LOCAL_PROFILE_PATHS = [
+        str(RUNTIME_ROOT / "twinmind-profile.local.json"),
+        str(RUNTIME_ROOT / "twinmind-profile.local.txt"),
+    ]
+    PERSONAL_MEMORY_PIPELINE = str(RUNTIME_ROOT / "scripts" / "personal-memory-pipeline.py")
+
+
+init_runtime_paths()
 
 
 def load_env_files(paths: List[str]) -> None:
@@ -306,11 +425,12 @@ def derive_user_key_from_query(user_query: str) -> str:
     q = (user_query or "").strip()
     if not q:
         return ""
-    # Common inbound format used by gateway auto-reply:
-    # [WhatsApp +49123... 2026-...Z] message
-    m = re.search(r"^\[\s*WhatsApp\s+([^\]\s]+)", q, re.I)
-    if m:
-        return f"wa:{m.group(1).strip()}"
+    header = parse_transport_header_line(q)
+    if header:
+        channel = str(header.get("channel") or "channel").strip().lower()
+        target = str(header.get("target") or "").strip()
+        if target:
+            return f"{channel}:{target}"
     # System heartbeat/cron prompts should not share conversation state with user chats.
     if re.search(r"\bHEARTBEAT\.md\b|\bHEARTBEAT_OK\b", q, re.I):
         return "system:heartbeat"
@@ -335,8 +455,7 @@ def infer_origin_chat_id() -> str:
         v = (getenv(k) or "").strip()
         if not v:
             continue
-        if v.endswith("@g.us") or v.endswith("@c.us"):
-            return v
+        return v
     return ""
 
 
@@ -344,14 +463,11 @@ def infer_origin_target_from_request_text(user_query: str) -> str:
     """
     Some inbound channels embed metadata into the user message, e.g.:
       "[WhatsApp +49123456789 2026-...Z] message..."
-    In those cases, env vars may not contain a chat id, but we can still reply
-    by targeting the phone number.
+      "[Telegram 123456789 2026-...Z] message..."
     """
-    if not user_query:
-        return ""
-    m = re.search(r"\[\s*WhatsApp\s+(\+?\d{8,})\b", user_query, re.I)
-    if m:
-        return m.group(1).strip()
+    header = extract_transport_header(user_query or "")
+    if header:
+        return str(header.get("target") or "").strip()
     return ""
 
 
@@ -365,7 +481,7 @@ def get_brave_api_key() -> Optional[str]:
     if key:
         return key
     try:
-        p = Path("/root/.clawdbot/scripts/daily-tech-news.py")
+        p = RUNTIME_ROOT / "scripts" / "daily-tech-news.py"
         if p.exists():
             txt = p.read_text(encoding="utf-8", errors="ignore")
             m = re.search(r'BRAVE_API_KEY\s*=\s*"([^"]+)"', txt)
@@ -428,8 +544,10 @@ def _env_int(name: str, default: int, low: int, high: int) -> int:
 
 
 def strip_channel_prefix(user_query: str) -> str:
-    # Remove "[WhatsApp +49... ...] " prefix used by web-auto-reply.
-    return re.sub(r"^\[\s*WhatsApp\s+[^\]]+\]\s*", "", (user_query or "").strip(), flags=re.I)
+    header = parse_transport_header_line((user_query or "").strip())
+    if not header:
+        return (user_query or "").strip()
+    return str(header.get("rest") or "").strip()
 
 
 def sanitize_inbound_query(user_query: str) -> str:
@@ -450,11 +568,11 @@ def sanitize_inbound_query(user_query: str) -> str:
     lines = q.split("\n")
     wa_idx = -1
     for idx, line in enumerate(lines):
-        if re.search(r"^\s*\[\s*WhatsApp\s+[^\]]+\]", line, re.I):
+        if parse_transport_header_line(line):
             wa_idx = idx
             break
     if wa_idx >= 0:
-        inline = re.sub(r"^\s*\[\s*WhatsApp\s+[^\]]+\]\s*", "", lines[wa_idx], flags=re.I).strip()
+        inline = strip_channel_prefix(lines[wa_idx]).strip()
         rest = lines[wa_idx + 1 :]
         cleaned_rest = []
         for line in rest:
@@ -505,13 +623,9 @@ def parse_media_paths_from_query(text: str) -> List[Tuple[str, str]]:
     return out
 
 
-def parse_whatsapp_timestamp(raw_query: str) -> Optional[float]:
-    if not raw_query:
-        return None
-    m = re.search(r"\[\s*WhatsApp\s+[^\]]+\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)\]", raw_query, re.I)
-    if not m:
-        return None
-    raw = (m.group(1) or "").strip()
+def parse_transport_timestamp(raw_query: str) -> Optional[float]:
+    header = extract_transport_header(raw_query or "")
+    raw = str((header or {}).get("timestamp") or "").strip()
     if not raw:
         return None
     if raw.endswith("Z"):
@@ -529,7 +643,7 @@ def parse_whatsapp_timestamp(raw_query: str) -> Optional[float]:
 
 
 def find_recent_inbound_pdf(raw_query: str) -> Optional[str]:
-    base = Path((getenv("TWINMIND_INBOUND_MEDIA_DIR", "/root/.clawdbot/media/inbound") or "/root/.clawdbot/media/inbound").strip())
+    base = Path((getenv("TWINMIND_INBOUND_MEDIA_DIR", str(RUNTIME_ROOT / "media" / "inbound")) or str(RUNTIME_ROOT / "media" / "inbound")).strip())
     if not base.exists() or not base.is_dir():
         return None
     try:
@@ -539,7 +653,7 @@ def find_recent_inbound_pdf(raw_query: str) -> Optional[str]:
     if not candidates:
         return None
 
-    ts = parse_whatsapp_timestamp(raw_query)
+    ts = parse_transport_timestamp(raw_query)
     if ts is None:
         latest = max(candidates, key=lambda p: p.stat().st_mtime)
         return str(latest)
@@ -553,7 +667,7 @@ def find_recent_inbound_pdf(raw_query: str) -> Optional[str]:
 
 
 def run_llmwhisperer_extract(file_path: str) -> Tuple[str, str]:
-    script = (getenv("TWINMIND_LLMWHISPERER_SCRIPT", "/root/clawd/skills/llmwhisperer/scripts/llmwhisperer") or "").strip()
+    script = (getenv("TWINMIND_LLMWHISPERER_SCRIPT", skill_script_path("llmwhisperer", "scripts", "llmwhisperer")) or "").strip()
     if not script or not os.path.exists(script):
         return "", "llmwhisperer script not found"
     timeout_sec = int(getenv("TWINMIND_PDF_EXTRACT_TIMEOUT_SEC", "180") or "180")
@@ -1760,7 +1874,8 @@ def shell_policy_check(cmd: str, allow_writes: bool) -> Tuple[bool, str]:
 
     # Heuristic: block likely mutating subcommands even when invoked via python/scripts
     mutating_words = [" add-", " create", " cancel", " confirm", " deny", " delete", " send "]
-    if "python" in lower or "/root/clawd/skills/" in lower:
+    skills_marker = str(SKILLS_ROOT).lower()
+    if "python" in lower or (skills_marker and skills_marker in lower):
         for w in mutating_words:
             if w in lower:
                 return False, f"Blocked by read-only policy (suspected mutating operation: {w.strip()})."
@@ -2065,13 +2180,13 @@ def tool_skill_run(args: Dict[str, Any], allow_writes: bool, tool_timeout_sec: i
     if not isinstance(sargs, dict):
         return {"ok": False, "error": "args.args must be an object"}
 
-    sharezone = "/root/clawd/skills/sharezone/scripts/sharezone_client.py"
-    schulcloud = "/root/clawd/skills/brandenburg-schulcloud/scripts/schulcloud_plan.py"
-    remind_one = "/root/clawd/skills/remind-me/create-reminder.sh"
-    remind_rec = "/root/clawd/skills/remind-me/create-recurring.sh"
-    memory_sync = "/root/clawd/skills/twinmind-orchestrator/scripts/twinmind_memory_sync.py"
-    memory_query = "/root/clawd/skills/twinmind-orchestrator/scripts/twinmind_memory_query.py"
-    youtube_intel = "/root/clawd/skills/youtube-intel/scripts/youtube_intel.py"
+    sharezone = skill_script_path("sharezone", "scripts", "sharezone_client.py")
+    schulcloud = skill_script_path("brandenburg-schulcloud", "scripts", "schulcloud_plan.py")
+    remind_one = skill_script_path("remind-me", "create-reminder.sh")
+    remind_rec = skill_script_path("remind-me", "create-recurring.sh")
+    memory_sync = skill_script_path("twinmind-orchestrator", "scripts", "twinmind_memory_sync.py")
+    memory_query = skill_script_path("twinmind-orchestrator", "scripts", "twinmind_memory_query.py")
+    youtube_intel = skill_script_path("youtube-intel", "scripts", "youtube_intel.py")
 
     # Read-only actions
     if skill == "sharezone.list_courses":
@@ -2272,6 +2387,7 @@ def tool_skill_run(args: Dict[str, Any], allow_writes: bool, tool_timeout_sec: i
     timeout = int(sargs.get("timeout_sec") or tool_timeout_sec)
     try:
         env = os.environ.copy()
+        current_channel = (str(sargs.get("channel") or infer_transport_name() or "").strip().lower())
         # For "get" mode, ensure we don't send outbound messages or change Sharezone.
         if skill in ("schulcloud.get_substitution_plan", "schulcloud.get_plan"):
             env["SCHULCLOUD_WHATSAPP_TARGET"] = ""
@@ -2289,12 +2405,23 @@ def tool_skill_run(args: Dict[str, Any], allow_writes: bool, tool_timeout_sec: i
                 env["SCHULCLOUD_WHATSAPP_TARGET"] = explicit_target
             else:
                 chat_id = infer_origin_chat_id()
-                if chat_id:
+                if chat_id and (current_channel == "whatsapp" or looks_whatsapp_target(chat_id)):
                     env["SCHULCLOUD_WHATSAPP_TARGET"] = chat_id
+                elif chat_id:
+                    return {
+                        "ok": False,
+                        "error": "Current transport cannot auto-target schulcloud.send_*; pass a WhatsApp-compatible args.target explicitly.",
+                    }
         # For reminder skills, pass an explicit delivery target if we can infer one.
         if skill in ("remind_me.set", "remind_me.set_recurring"):
-            env.setdefault("REMINDER_CHANNEL", "whatsapp")
             explicit_to = (str(sargs.get("to") or "")).strip()
+            reminder_channel = current_channel
+            if not reminder_channel and explicit_to and looks_whatsapp_target(explicit_to):
+                reminder_channel = "whatsapp"
+            if reminder_channel:
+                env["REMINDER_CHANNEL"] = reminder_channel
+            else:
+                env.setdefault("REMINDER_CHANNEL", "whatsapp")
             if explicit_to:
                 env["REMINDER_TO"] = explicit_to
             else:
@@ -2327,7 +2454,7 @@ def execute_tool(tool: str, args: Dict[str, Any], allow_writes: bool, tool_timeo
             "add-event": "sharezone.add_event",
             "cancel-lesson": "sharezone.cancel_lesson",
         }
-        if "/root/clawd/skills/sharezone/scripts/sharezone_client.py" in cmd:
+        if skill_script_path("sharezone", "scripts", "sharezone_client.py") in cmd:
             m = re.search(r"sharezone_client\.py\s+([a-z-]+)", cmd)
             if m and m.group(1) in sharezone_rewrites:
                 rewritten = {
@@ -2867,6 +2994,14 @@ def build_repair_prompt(err: str, last_output: str) -> str:
 
 
 def main() -> None:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--runtime-root", default=(os.getenv("TWINMIND_RUNTIME_ROOT") or "").strip())
+    pre_parser.add_argument("--workspace-root", default=(os.getenv("TWINMIND_WORKSPACE_ROOT") or "").strip())
+    pre_parser.add_argument("--channel", default=(os.getenv("CLAWDBOT_CHANNEL") or "").strip())
+    pre_args, _ = pre_parser.parse_known_args()
+    init_runtime_paths(pre_args.runtime_root or None, pre_args.workspace_root or None)
+    if pre_args.channel:
+        os.environ["CLAWDBOT_CHANNEL"] = pre_args.channel
     load_env_files(ENV_PATHS)
     parser = argparse.ArgumentParser(description="TwinMind Orchestrator (conversation + optional tool-call bridge)")
     # Support both explicit flag and positional query so this script can be used
@@ -2875,6 +3010,9 @@ def main() -> None:
     parser.add_argument("query_pos", nargs="?", help="User query / task (positional)")
     parser.add_argument("--session-id", default=None)
     parser.add_argument("--new-session", action="store_true")
+    parser.add_argument("--runtime-root", default=str(RUNTIME_ROOT))
+    parser.add_argument("--workspace-root", default=str(WORKSPACE_ROOT))
+    parser.add_argument("--channel", default=getenv("CLAWDBOT_CHANNEL", "") or "")
     parser.add_argument(
         "--mode",
         choices=["conversation", "tool_bridge"],
@@ -2937,6 +3075,9 @@ def main() -> None:
         help="Output format for stdout (text or json). Use json for Clawdbot CLI backend session continuity.",
     )
     args = parser.parse_args()
+    init_runtime_paths(str(args.runtime_root or "").strip() or None, str(args.workspace_root or "").strip() or None)
+    if str(args.channel or "").strip():
+        os.environ["CLAWDBOT_CHANNEL"] = str(args.channel).strip()
 
     raw_user_query = (str(args.query or args.query_pos or "")).strip()
     if not raw_user_query:

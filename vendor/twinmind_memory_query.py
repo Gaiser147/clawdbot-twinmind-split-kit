@@ -3,13 +3,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 
-INDEX_PATH = Path("/root/.clawdbot/twinmind-orchestrator/memory/index.json")
+DEFAULT_RUNTIME_ROOT = Path("/root/.clawdbot")
+
+
+def detect_runtime_root() -> Path:
+    for key in ("TWINMIND_RUNTIME_ROOT", "CLAWDBOT_RUNTIME_ROOT"):
+        raw = (os.getenv(key) or "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    cfg_path = (os.getenv("CLAWDBOT_CONFIG_PATH") or "").strip()
+    if cfg_path:
+        return Path(cfg_path).expanduser().parent
+    return DEFAULT_RUNTIME_ROOT
+
+
+INDEX_PATH = detect_runtime_root() / "twinmind-orchestrator" / "memory" / "index.json"
 
 
 def load_index() -> List[Dict[str, Any]]:
@@ -197,4 +212,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
