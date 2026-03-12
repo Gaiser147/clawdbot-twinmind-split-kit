@@ -9,6 +9,7 @@ CONFIG_PATH=""
 ENV_PATH=""
 TARGET_ROOT=""
 MIGRATION_ID="easy-$(date -u +%Y%m%dT%H%M%SZ)"
+UPDATE_ID="easy-$(date -u +%Y%m%dT%H%M%SZ)"
 PATCH_ENV=0
 FORCE_SPLIT_DEFAULT=0
 YES=0
@@ -16,6 +17,8 @@ QUERY=""
 PRINT_JSON=0
 CONFIG_PATH_EXPLICIT=0
 ENV_PATH_EXPLICIT=0
+SYNC_CONFIG=0
+SYNC_ENV_TEMPLATE=0
 
 usage() {
   cat <<USAGE
@@ -23,11 +26,15 @@ Usage: $(basename "$0") <mode> [options]
        $(basename "$0") --mode <mode> [options]
 
 Modes:
-  preflight   Validate prerequisites, target detection, and converter plan viability
-  plan        Run converter dry-run with an external report path
-  replica     Run replica plan by default, or replica apply with --yes
-  apply       Run live migration and then the smoke test
-  smoke-test  Run the migration smoke test directly
+  preflight          Validate prerequisites, target detection, and converter plan viability
+  inspect            Inspect whether the target is already a TwinMind-managed install
+  plan               Run converter dry-run with an external report path
+  replica            Run replica plan by default, or replica apply with --yes
+  apply              Run live migration and then the smoke test
+  smoke-test         Run the migration smoke test directly
+  update-plan        Inspect + plan a runtime update for an existing TwinMind-managed install
+  update-apply       Inspect + apply a runtime update and then run the smoke test
+  update-smoke-test  Alias for smoke-test after an update
 
 Options:
   --mode <name>                   Alias for the positional mode argument
@@ -35,12 +42,15 @@ Options:
   --env <path>                    Optional; defaults to sibling .env next to config
   --target-root <path>            For replica mode; default: /tmp-based unique path
   --migration-id <id>             Default: easy-<utc timestamp>
+  --update-id <id>                Default: easy-<utc timestamp>
   --report-dir <path>             Default: ${TMPDIR:-/tmp}/twinmind-split-kit/reports
   --patch-env                     Pass through to converter apply
   --force-split-default           Pass through to converter plan/apply
+  --sync-config <0|1>             For update-apply/update-plan; default: 0
+  --sync-env-template <0|1>       For update-apply/update-plan; default: 0
   --query <text>                  Optional custom smoke-test query
   --print-json                    Print only the final JSON summary
-  --yes                           Required for live apply; enables replica apply
+  --yes                           Required for live apply/update-apply; enables replica apply
   -h, --help
 USAGE
 }
@@ -56,7 +66,13 @@ need_cmd() {
 
 report_path_for() {
   local name="$1"
-  printf '%s/%s-%s.json' "$REPORT_DIR" "$name" "$MIGRATION_ID"
+  local id="$MIGRATION_ID"
+  case "$name" in
+    inspect|update-plan|update-apply|update-summary|update-smoke-test)
+      id="$UPDATE_ID"
+      ;;
+  esac
+  printf '%s/%s-%s.json' "$REPORT_DIR" "$name" "$id"
 }
 
 emit_report() {
@@ -66,24 +82,24 @@ emit_report() {
     echo "$label"
     echo "Report: $report_json"
   fi
-  python3 - "$report_json" <<'PY2'
+  python3 - "$report_json" <<'PY'
 import json, sys
 with open(sys.argv[1], 'r', encoding='utf-8') as handle:
     print(json.dumps(json.load(handle), ensure_ascii=False, indent=2))
-PY2
+PY
 }
 
 write_json_report() {
   local path="$1"
   local payload="$2"
   mkdir -p "$(dirname "$path")"
-  python3 - "$path" "$payload" <<'PY2'
+  python3 - "$path" "$payload" <<'PY'
 import json, sys
 path, payload = sys.argv[1:3]
 with open(path, 'w', encoding='utf-8') as handle:
     json.dump(json.loads(payload), handle, ensure_ascii=False, indent=2)
     handle.write("\n")
-PY2
+PY
 }
 
 resolve_config_and_env() {
@@ -146,10 +162,10 @@ load_key_from_env_file() {
 
 check_python_module() {
   local module="$1"
-  python3 - "$module" <<'PY2' >/dev/null 2>&1
+  python3 - "$module" <<'PY' >/dev/null 2>&1
 import importlib, sys
 importlib.import_module(sys.argv[1])
-PY2
+PY
 }
 
 detected_target_name() {
@@ -204,6 +220,19 @@ run_converter_apply() {
   run_quiet_command "${cmd[@]}"
 }
 
+run_converter_update() {
+  local update_mode="$1"
+  local report_json="$2"
+  local -a cmd=("$KIT_ROOT/scripts/convert_clawdbot_to_split.sh" --mode "$update_mode" --config "$CONFIG_PATH" --report-json "$report_json" --update-id "$UPDATE_ID" --sync-config "$SYNC_CONFIG" --sync-env-template "$SYNC_ENV_TEMPLATE")
+  if [[ "$ENV_PATH_EXPLICIT" -eq 1 || -f "$ENV_PATH" ]]; then
+    cmd+=(--env "$ENV_PATH")
+  fi
+  if [[ "$update_mode" == "update-apply" ]]; then
+    cmd+=(--yes)
+  fi
+  run_quiet_command "${cmd[@]}"
+}
+
 run_preflight() {
   local report_json="$1"
   local plan_report="$2"
@@ -254,7 +283,7 @@ run_preflight() {
   rm -f "$tmp_plan_err"
 
   local payload
-  payload="$(python3 - "$CONFIG_PATH" "$ENV_PATH" "$detected_target" "$support_level" "$plan_report" "$plan_status" "$plan_stderr" "$(printf '%s\n' "${missing[@]}")" "$(printf '%s\n' "${warnings[@]}")" <<'PY2'
+  payload="$(python3 - "$CONFIG_PATH" "$ENV_PATH" "$detected_target" "$support_level" "$plan_report" "$plan_status" "$plan_stderr" "$(printf '%s\n' "${missing[@]}")" "$(printf '%s\n' "${warnings[@]}")" <<'PY'
 import datetime as dt, json, sys
 config_path, env_path, detected_target, support_level, plan_report, plan_status, plan_stderr, missing_raw, warnings_raw = sys.argv[1:10]
 missing = [line for line in missing_raw.splitlines() if line.strip()]
@@ -276,7 +305,7 @@ report = {
     'errors': errors,
 }
 print(json.dumps(report, ensure_ascii=False))
-PY2
+PY
 )"
   write_json_report "$report_json" "$payload"
 
@@ -318,6 +347,20 @@ run_smoke() {
     cmd+=(--query "$QUERY")
   fi
   run_quiet_command "${cmd[@]}"
+  python3 - "$report_json" <<'PY' >/dev/null
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    payload = json.load(handle)
+if not payload.get('ok'):
+    raise SystemExit(40)
+PY
+}
+
+run_inspect() {
+  local report_json="$1"
+  resolve_config_and_env || err "Could not auto-detect config. Pass --config explicitly."
+  local -a cmd=("$KIT_ROOT/scripts/inspect_twinmind_install.sh" --config "$CONFIG_PATH" --report-json "$report_json" --print-json)
+  "${cmd[@]}" >/dev/null
 }
 
 if [[ $# -lt 1 ]]; then
@@ -331,7 +374,7 @@ if [[ "$1" == "--mode" ]]; then
   shift 2
 else
   case "$1" in
-    preflight|plan|replica|apply|smoke-test)
+    preflight|inspect|plan|replica|apply|smoke-test|update-plan|update-apply|update-smoke-test)
       MODE="$1"
       shift
       ;;
@@ -340,7 +383,7 @@ else
       exit 0
       ;;
     *)
-      err "First argument must be one of: preflight, plan, replica, apply, smoke-test"
+      err "First argument must be one of: preflight, inspect, plan, replica, apply, smoke-test, update-plan, update-apply, update-smoke-test"
       ;;
   esac
 fi
@@ -370,6 +413,10 @@ while [[ $# -gt 0 ]]; do
       MIGRATION_ID="$2"
       shift 2
       ;;
+    --update-id)
+      UPDATE_ID="$2"
+      shift 2
+      ;;
     --report-dir)
       REPORT_DIR="$2"
       shift 2
@@ -381,6 +428,14 @@ while [[ $# -gt 0 ]]; do
     --force-split-default)
       FORCE_SPLIT_DEFAULT=1
       shift
+      ;;
+    --sync-config)
+      SYNC_CONFIG="$2"
+      shift 2
+      ;;
+    --sync-env-template)
+      SYNC_ENV_TEMPLATE="$2"
+      shift 2
       ;;
     --query)
       QUERY="$2"
@@ -404,6 +459,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$SYNC_CONFIG" in 0|1) ;; *) err "--sync-config must be 0 or 1" ;; esac
+case "$SYNC_ENV_TEMPLATE" in 0|1) ;; *) err "--sync-env-template must be 0 or 1" ;; esac
+
 mkdir -p "$REPORT_DIR"
 
 case "$MODE" in
@@ -419,10 +477,39 @@ case "$MODE" in
       exit "$status"
     fi
     ;;
+  inspect)
+    INSPECT_REPORT="$(report_path_for inspect)"
+    if run_inspect "$INSPECT_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$INSPECT_REPORT" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as handle:
+    raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'inspect', 'inspect': raw}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Inspect failed." "$INSPECT_REPORT"
+      exit "$status"
+    fi
+    python3 - "$INSPECT_REPORT" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as handle:
+    raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': bool(raw.get('managed_install')), 'mode': 'inspect', 'inspect': raw}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+    emit_report "Inspect completed." "$INSPECT_REPORT"
+    ;;
   plan)
     PLAN_REPORT="$(report_path_for plan)"
     run_plan "$PLAN_REPORT"
-    python3 - "$PLAN_REPORT" <<'PY2'
+    python3 - "$PLAN_REPORT" <<'PY'
 import json, sys
 path = sys.argv[1]
 with open(path, 'r', encoding='utf-8') as handle:
@@ -430,7 +517,7 @@ with open(path, 'r', encoding='utf-8') as handle:
 with open(path, 'w', encoding='utf-8') as handle:
     json.dump({'ok': True, 'mode': 'plan', 'plan': raw}, handle, ensure_ascii=False, indent=2)
     handle.write('\n')
-PY2
+PY
     emit_report "Plan completed." "$PLAN_REPORT"
     ;;
   replica)
@@ -440,7 +527,7 @@ PY2
     if [[ "$YES" -eq 1 ]]; then
       REPLICA_MODE_VALUE="apply"
     fi
-    python3 - "$REPLICA_REPORT" "$REPLICA_MODE_VALUE" <<'PY2'
+    python3 - "$REPLICA_REPORT" "$REPLICA_MODE_VALUE" <<'PY'
 import json, sys
 path, replica_mode = sys.argv[1:3]
 with open(path, 'r', encoding='utf-8') as handle:
@@ -448,14 +535,16 @@ with open(path, 'r', encoding='utf-8') as handle:
 with open(path, 'w', encoding='utf-8') as handle:
     json.dump({'ok': True, 'mode': 'replica', 'replica_mode': replica_mode, 'replica': raw}, handle, ensure_ascii=False, indent=2)
     handle.write('\n')
-PY2
+PY
     emit_report "Replica completed." "$REPLICA_REPORT"
     ;;
   apply)
     [[ "$YES" -eq 1 ]] || err "Apply requires --yes"
     PREFLIGHT_REPORT="$(report_path_for preflight)"
     PREFLIGHT_PLAN_REPORT="$(report_path_for preflight-plan)"
-    if ! run_preflight "$PREFLIGHT_REPORT" "$PREFLIGHT_PLAN_REPORT"; then
+    if run_preflight "$PREFLIGHT_REPORT" "$PREFLIGHT_PLAN_REPORT"; then
+      :
+    else
       status=$?
       emit_report "Preflight failed." "$PREFLIGHT_REPORT"
       exit "$status"
@@ -464,9 +553,11 @@ PY2
     run_converter_apply "$APPLY_REPORT"
     SMOKE_REPORT="$(report_path_for smoke-test)"
     APPLY_SUMMARY_REPORT="$(report_path_for apply-summary)"
-    if ! run_smoke "$SMOKE_REPORT"; then
+    if run_smoke "$SMOKE_REPORT"; then
+      :
+    else
       status=$?
-      python3 - "$APPLY_SUMMARY_REPORT" "$APPLY_REPORT" "$SMOKE_REPORT" <<'PY2'
+      python3 - "$APPLY_SUMMARY_REPORT" "$APPLY_REPORT" "$SMOKE_REPORT" <<'PY'
 import json, sys
 summary_path, apply_path, smoke_path = sys.argv[1:4]
 with open(apply_path, 'r', encoding='utf-8') as handle:
@@ -476,11 +567,11 @@ with open(smoke_path, 'r', encoding='utf-8') as handle:
 with open(summary_path, 'w', encoding='utf-8') as handle:
     json.dump({'ok': False, 'mode': 'apply', 'apply': apply_raw, 'smoke_test': smoke_raw}, handle, ensure_ascii=False, indent=2)
     handle.write('\n')
-PY2
+PY
       emit_report "Apply finished, but smoke test failed." "$APPLY_SUMMARY_REPORT"
       exit "$status"
     fi
-    python3 - "$APPLY_SUMMARY_REPORT" "$APPLY_REPORT" "$SMOKE_REPORT" <<'PY2'
+    python3 - "$APPLY_SUMMARY_REPORT" "$APPLY_REPORT" "$SMOKE_REPORT" <<'PY'
 import json, sys
 summary_path, apply_path, smoke_path = sys.argv[1:4]
 with open(apply_path, 'r', encoding='utf-8') as handle:
@@ -490,22 +581,183 @@ with open(smoke_path, 'r', encoding='utf-8') as handle:
 with open(summary_path, 'w', encoding='utf-8') as handle:
     json.dump({'ok': True, 'mode': 'apply', 'apply': apply_raw, 'smoke_test': smoke_raw}, handle, ensure_ascii=False, indent=2)
     handle.write('\n')
-PY2
+PY
     emit_report "Apply completed." "$APPLY_SUMMARY_REPORT"
     ;;
-  smoke-test)
-    SMOKE_REPORT="$(report_path_for smoke-test)"
+  smoke-test|update-smoke-test)
+    SMOKE_REPORT="$(report_path_for "$MODE")"
     run_smoke "$SMOKE_REPORT"
-    python3 - "$SMOKE_REPORT" <<'PY2'
+    python3 - "$SMOKE_REPORT" "$MODE" <<'PY'
 import json, sys
-path = sys.argv[1]
+path, mode_name = sys.argv[1:3]
 with open(path, 'r', encoding='utf-8') as handle:
     raw = json.load(handle)
 with open(path, 'w', encoding='utf-8') as handle:
-    json.dump({'ok': bool(raw.get('ok')), 'mode': 'smoke-test', 'smoke_test': raw}, handle, ensure_ascii=False, indent=2)
+    json.dump({'ok': bool(raw.get('ok')), 'mode': mode_name, 'smoke_test': raw}, handle, ensure_ascii=False, indent=2)
     handle.write('\n')
-PY2
+PY
     emit_report "Smoke test completed." "$SMOKE_REPORT"
+    ;;
+  update-plan)
+    INSPECT_REPORT="$(report_path_for inspect)"
+    UPDATE_PLAN_REPORT="$(report_path_for update-plan)"
+    if run_inspect "$INSPECT_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$UPDATE_PLAN_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, sys
+path, inspect_path = sys.argv[1:3]
+inspect_raw = json.load(open(inspect_path, 'r', encoding='utf-8'))
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'update-plan', 'inspect': inspect_raw, 'errors': [inspect_raw.get('reason') or 'Target is not a TwinMind-managed install.']}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update plan failed." "$UPDATE_PLAN_REPORT"
+      exit "$status"
+    fi
+    if ! python3 - "$INSPECT_REPORT" <<'PY'
+import json, sys
+raw = json.load(open(sys.argv[1], 'r', encoding='utf-8'))
+if not raw.get('managed_install'):
+    raise SystemExit(1)
+PY
+    then
+      python3 - "$UPDATE_PLAN_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, sys
+path, inspect_path = sys.argv[1:3]
+inspect_raw = json.load(open(inspect_path, 'r', encoding='utf-8'))
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'update-plan', 'inspect': inspect_raw, 'errors': [inspect_raw.get('reason') or 'Target is not a TwinMind-managed install.']}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update plan failed." "$UPDATE_PLAN_REPORT"
+      exit 20
+    fi
+    if run_converter_update update-plan "$UPDATE_PLAN_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$UPDATE_PLAN_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, os, sys
+path, inspect_path = sys.argv[1:3]
+inspect_raw = json.load(open(inspect_path, 'r', encoding='utf-8'))
+payload = {'ok': False, 'mode': 'update-plan', 'inspect': inspect_raw}
+if os.path.exists(path):
+    payload['update_plan'] = json.load(open(path, 'r', encoding='utf-8'))
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump(payload, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update plan failed." "$UPDATE_PLAN_REPORT"
+      exit "$status"
+    fi
+    python3 - "$UPDATE_PLAN_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, sys
+path, inspect_path = sys.argv[1:3]
+with open(path, 'r', encoding='utf-8') as handle:
+    update_raw = json.load(handle)
+with open(inspect_path, 'r', encoding='utf-8') as handle:
+    inspect_raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': True, 'mode': 'update-plan', 'inspect': inspect_raw, 'update_plan': update_raw}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+    emit_report "Update plan completed." "$UPDATE_PLAN_REPORT"
+    ;;
+  update-apply)
+    [[ "$YES" -eq 1 ]] || err "Update apply requires --yes"
+    INSPECT_REPORT="$(report_path_for inspect)"
+    UPDATE_REPORT="$(report_path_for update-apply)"
+    UPDATE_SMOKE_REPORT="$(report_path_for update-smoke-test)"
+    UPDATE_SUMMARY_REPORT="$(report_path_for update-summary)"
+    if run_inspect "$INSPECT_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$UPDATE_SUMMARY_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, sys
+path, inspect_path = sys.argv[1:3]
+with open(inspect_path, 'r', encoding='utf-8') as handle:
+    inspect_raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'update-apply', 'inspect': inspect_raw, 'errors': [inspect_raw.get('reason') or 'Target is not a TwinMind-managed install.']}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update apply failed." "$UPDATE_SUMMARY_REPORT"
+      exit "$status"
+    fi
+    if ! python3 - "$INSPECT_REPORT" <<'PY'
+import json, sys
+raw = json.load(open(sys.argv[1], 'r', encoding='utf-8'))
+if not raw.get('managed_install'):
+    raise SystemExit(1)
+PY
+    then
+      python3 - "$UPDATE_SUMMARY_REPORT" "$INSPECT_REPORT" <<'PY'
+import json, sys
+path, inspect_path = sys.argv[1:3]
+with open(inspect_path, 'r', encoding='utf-8') as handle:
+    inspect_raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'update-apply', 'inspect': inspect_raw, 'errors': [inspect_raw.get('reason') or 'Target is not a TwinMind-managed install.']}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update apply failed." "$UPDATE_SUMMARY_REPORT"
+      exit 20
+    fi
+    if run_converter_update update-apply "$UPDATE_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$UPDATE_SUMMARY_REPORT" "$INSPECT_REPORT" "$UPDATE_REPORT" <<'PY'
+import json, os, sys
+path, inspect_path, update_path = sys.argv[1:4]
+inspect_raw = json.load(open(inspect_path, 'r', encoding='utf-8'))
+payload = {'ok': False, 'mode': 'update-apply', 'inspect': inspect_raw}
+if os.path.exists(update_path):
+    payload['update_apply'] = json.load(open(update_path, 'r', encoding='utf-8'))
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump(payload, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update apply failed." "$UPDATE_SUMMARY_REPORT"
+      exit "$status"
+    fi
+    if run_smoke "$UPDATE_SMOKE_REPORT"; then
+      :
+    else
+      status=$?
+      python3 - "$UPDATE_SUMMARY_REPORT" "$INSPECT_REPORT" "$UPDATE_REPORT" "$UPDATE_SMOKE_REPORT" <<'PY'
+import json, sys
+path, inspect_path, update_path, smoke_path = sys.argv[1:5]
+with open(inspect_path, 'r', encoding='utf-8') as handle:
+    inspect_raw = json.load(handle)
+with open(update_path, 'r', encoding='utf-8') as handle:
+    update_raw = json.load(handle)
+with open(smoke_path, 'r', encoding='utf-8') as handle:
+    smoke_raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': False, 'mode': 'update-apply', 'inspect': inspect_raw, 'update_apply': update_raw, 'smoke_test': smoke_raw}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+      emit_report "Update apply finished, but smoke test failed." "$UPDATE_SUMMARY_REPORT"
+      exit "$status"
+    fi
+    python3 - "$UPDATE_SUMMARY_REPORT" "$INSPECT_REPORT" "$UPDATE_REPORT" "$UPDATE_SMOKE_REPORT" <<'PY'
+import json, sys
+path, inspect_path, update_path, smoke_path = sys.argv[1:5]
+with open(inspect_path, 'r', encoding='utf-8') as handle:
+    inspect_raw = json.load(handle)
+with open(update_path, 'r', encoding='utf-8') as handle:
+    update_raw = json.load(handle)
+with open(smoke_path, 'r', encoding='utf-8') as handle:
+    smoke_raw = json.load(handle)
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump({'ok': True, 'mode': 'update-apply', 'inspect': inspect_raw, 'update_apply': update_raw, 'smoke_test': smoke_raw}, handle, ensure_ascii=False, indent=2)
+    handle.write('\n')
+PY
+    emit_report "Update apply completed." "$UPDATE_SUMMARY_REPORT"
     ;;
   *)
     err "Invalid mode: $MODE"
