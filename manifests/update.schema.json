@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TwinMind Split Kit Update Manifest",
+  "type": "object",
+  "required": [
+    "update_id",
+    "created_at_utc",
+    "mode",
+    "target_config_path",
+    "target_env_path",
+    "target_app_root",
+    "target_runtime_dir",
+    "target_runtime_script",
+    "runtime_vendor_files",
+    "runtime_before_checksums",
+    "runtime_after_checksums",
+    "runtime_backup_dir",
+    "sync_config",
+    "sync_env_template",
+    "env_created",
+    "kit_root",
+    "status"
+  ],
+  "properties": {
+    "update_id": { "type": "string" },
+    "created_at_utc": { "type": "string" },
+    "mode": { "type": "string", "enum": ["update-apply"] },
+    "target_config_path": { "type": "string" },
+    "target_env_path": { "type": "string" },
+    "target_app_root": { "type": "string" },
+    "target_runtime_dir": { "type": "string" },
+    "target_runtime_script": { "type": "string" },
+    "runtime_vendor_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "runtime_before_checksums": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "runtime_after_checksums": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "runtime_backup_dir": { "type": "string" },
+    "backup_config_path": { "type": "string" },
+    "backup_env_path": { "type": "string" },
+    "config_before_checksum": { "type": "string" },
+    "config_after_checksum": { "type": "string" },
+    "env_before_checksum": { "type": "string" },
+    "env_after_checksum": { "type": "string" },
+    "sync_config": { "type": "boolean" },
+    "sync_env_template": { "type": "boolean" },
+    "env_created": { "type": "boolean" },
+    "env_patched_keys": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "kit_root": { "type": "string" },
+    "source_repo_head": { "type": "string" },
+    "status": { "type": "string", "enum": ["applied"] }
+  }
+}
