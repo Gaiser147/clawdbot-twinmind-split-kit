@@ -11,6 +11,9 @@ Purpose: patch an existing Clawdbot/OpenClaw/Moltbook/Moltbot-style config to us
 - `plan`: no mutation, writes a patch report
 - `apply`: writes backup, patched config, and manifest
 - `rollback`: restores a prior backup from the manifest
+- `update-plan`: inspects a TwinMind-managed install and writes an update report
+- `update-apply`: refreshes the copied TwinMind runtime for an existing TwinMind-managed install
+- `update-rollback`: restores a prior TwinMind update from its update manifest
 
 ### Important flags
 
@@ -19,6 +22,9 @@ Purpose: patch an existing Clawdbot/OpenClaw/Moltbook/Moltbot-style config to us
 - `--patch-env`: append non-secret defaults from the template
 - `--force-split-default`: patch backend `--mode` to `tool_bridge` instead of `conversation`
 - `--migration-id`: optional in `plan` and `apply`, required for `rollback`
+- `--update-id`: optional in `update-plan` and `update-apply`, required for `update-rollback`
+- `--sync-config 0|1`: opt-in sync of managed TwinMind backend fields during update flows
+- `--sync-env-template 0|1`: opt-in sync of new non-secret template env keys during update flows
 
 ### Default patch behavior
 
@@ -40,6 +46,9 @@ The managed backend args include:
 - `reports/convert-<migration-id>.json`
 - `backups/clawdbot.json.<migration-id>.bak`
 - `manifests/migration-<migration-id>.json`
+- `reports/update-<update-id>.json`
+- `backups/runtime-<update-id>/...`
+- `manifests/update-<update-id>.json`
 
 ### Support boundary
 
@@ -62,17 +71,42 @@ Purpose: build a reproducible local replica tree with vendored wrapper files and
 - reports include the copied runtime location under `clawd/skills/twinmind-orchestrator/scripts`
 - writes `.env.example`, not live secrets
 
+## `scripts/inspect_twinmind_install.sh`
+
+Purpose: inspect an existing config and report whether it is already a TwinMind-managed install.
+
+### Outputs
+
+- human-readable summary by default
+- JSON summary with `--print-json`
+
+### Reported fields
+
+- `managed_install`
+- `config_path`
+- `runtime_root`
+- `workspace_root`
+- `runtime_dir`
+- installed runtime checksums
+- repo vendor checksums
+- `update_available`
+- `reason` for unsupported or non-managed installs
+
 ## `scripts/ai_easy_setup.sh`
 
-Purpose: provide one machine-friendly entrypoint for terminal AI tools and human operators who want preflight, plan, replica, apply, and smoke-test in one place.
+Purpose: provide one machine-friendly entrypoint for terminal AI tools and human operators who want inspect, preflight, plan, update, replica, apply, and smoke-test in one place.
 
 ### Modes
 
+- `inspect`: read-only check for whether the target is already TwinMind-managed and whether an update is available
 - `preflight`: checks local commands, Python dependency, config shape, and TwinMind secrets
 - `plan`: runs the live migration plan and returns a JSON summary
+- `update-plan`: runs the later update plan for an already TwinMind-managed install
+- `update-apply`: applies a later runtime update and then the smoke test
 - `replica`: creates a safe local replica under a chosen target root and returns a JSON summary
-- `apply`: runs live migration and then the smoke test unless `--no-smoke` is set
+- `apply`: runs live migration and then the smoke test
 - `smoke-test`: delegates directly to `scripts/smoke_test_migration.sh`
+- `update-smoke-test`: delegates directly to `scripts/smoke_test_migration.sh` for an already updated install
 
 ### Useful flags
 
@@ -82,14 +116,17 @@ Purpose: provide one machine-friendly entrypoint for terminal AI tools and human
 - `--report-dir <path>`
 - `--print-json`
 - `--yes`
-- `--no-require-secrets`
-- `--no-smoke`
+- `--update-id <id>`
+- `--sync-config 0|1`
+- `--sync-env-template 0|1`
 
 ### Behavior notes
 
 - keeps its own reports outside the repo worktree by default under `/tmp/twinmind-split-kit-<timestamp>/`
 - does not invent a second migration path; it delegates to the existing converter and replica scripts
+- does not invent a second update path; it should delegate update actions to the existing converter and inspect scripts
 - stops early on missing secrets or incompatible config shape for live migration
+- should stop early on non-TwinMind-managed installs for update flows
 
 ## `scripts/smoke_test_migration.sh`
 

@@ -14,21 +14,24 @@ Required behavior:
 1. Clone the repo locally if it is not already present.
 2. `cd` into the repo root before running any script.
 3. Read the README briefly and use the repo’s automation scripts instead of inventing your own migration flow.
-4. Run:
-   - scripts/ai_easy_setup.sh preflight --print-json
-   - scripts/ai_easy_setup.sh plan --print-json
-5. Summarize:
-   - detected target type and config path
-   - whether required TwinMind secrets are present
-   - whether the config shape is compatible
-   - what the migration would change
-6. Do not run apply yet. Stop and wait for explicit confirmation after showing the plan result.
-7. If I confirm, run:
-   - scripts/ai_easy_setup.sh apply --yes --print-json
-8. After apply, report whether the smoke test passed and include the log/report path used for verification.
+4. First determine whether this machine already has a TwinMind-managed install:
+   - scripts/ai_easy_setup.sh inspect --print-json
+5. If inspect says this is already a TwinMind-managed install:
+   - run scripts/ai_easy_setup.sh update-plan --print-json
+   - summarize the detected install, runtime root, and whether an update is available
+   - do not run update-apply yet; wait for explicit confirmation
+   - if I confirm, run scripts/ai_easy_setup.sh update-apply --yes --print-json
+6. If inspect says this is not yet a TwinMind-managed install:
+   - run scripts/ai_easy_setup.sh preflight --print-json
+   - run scripts/ai_easy_setup.sh plan --print-json
+   - summarize detected target type, config path, required TwinMind secrets, config-shape compatibility, and what migration would change
+   - do not run apply yet; wait for explicit confirmation
+   - if I confirm, run scripts/ai_easy_setup.sh apply --yes --print-json
+7. After update-apply or apply, report whether the smoke test passed and include the log/report path used for verification.
 
 Hard safety rules:
 - Never run apply before plan.
+- Never re-run migration on an install that inspect already identifies as TwinMind-managed. Use inspect/update-plan/update-apply/update-rollback instead.
 - If TwinMind secrets are missing, stop and say exactly which ones are missing.
 - If `codex` or `timeout` is missing, stop and say so; this repo needs them for the default migration + smoke-test flow.
 - If the detected config is not Clawdbot-compatible, stop instead of patching random JSON.
@@ -44,15 +47,20 @@ Optional safe trial:
 
 ## Expected flow
 
-1. `preflight`
-2. `plan`
+1. `inspect`
+2. either `update-plan` or `preflight` + `plan`
 3. human confirmation
-4. `apply`
+4. either `update-apply` or `apply`
 5. `smoke-test`
 
 ## Fast path
 
 ```bash
+scripts/ai_easy_setup.sh inspect
+# if already managed:
+scripts/ai_easy_setup.sh update-plan
+scripts/ai_easy_setup.sh update-apply --yes
+# otherwise:
 scripts/ai_easy_setup.sh preflight
 scripts/ai_easy_setup.sh plan
 scripts/ai_easy_setup.sh apply --yes
@@ -61,6 +69,8 @@ scripts/ai_easy_setup.sh apply --yes
 ## What the AI should not improvise
 
 - custom migration scripts
+- custom update scripts
 - hand-edited config patches before the repo scripts run
+- re-migrating an already TwinMind-managed install
 - provider/model switch assumptions based only on `.env`
 - unsupported channel guarantees

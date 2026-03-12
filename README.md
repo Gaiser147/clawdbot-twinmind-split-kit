@@ -8,6 +8,8 @@ TwinMind Split Kit adds the TwinMind wrapper backend to an existing Clawdbot-sty
 3. patch a live config with rollback artifacts
 4. let a terminal AI drive the same flow through repo-owned scripts
 
+If you already migrated an install earlier, the repo also supports a separate **inspect -> update-plan -> update-apply -> update-rollback** flow for later TwinMind runtime updates.
+
 ## [Easy Setup for Terminal AI Tools](./prompts/terminal-ai-easy-setup.md)
 
 <table>
@@ -35,21 +37,24 @@ Required behavior:
 1. Clone the repo locally if it is not already present.
 2. `cd` into the repo root before running any script.
 3. Read the README briefly and use the repo’s automation scripts instead of inventing your own migration flow.
-4. Run:
-   - scripts/ai_easy_setup.sh preflight --print-json
-   - scripts/ai_easy_setup.sh plan --print-json
-5. Summarize:
-   - detected target type and config path
-   - whether required TwinMind secrets are present
-   - whether the config shape is compatible
-   - what the migration would change
-6. Do not run apply yet. Stop and wait for explicit confirmation after showing the plan result.
-7. If I confirm, run:
-   - scripts/ai_easy_setup.sh apply --yes --print-json
-8. After apply, report whether the smoke test passed and include the log/report path used for verification.
+4. First determine whether this machine already has a TwinMind-managed install:
+   - scripts/ai_easy_setup.sh inspect --print-json
+5. If inspect says this is already a TwinMind-managed install:
+   - run scripts/ai_easy_setup.sh update-plan --print-json
+   - summarize the detected install, runtime root, and whether an update is available
+   - do not run update-apply yet; wait for explicit confirmation
+   - if I confirm, run scripts/ai_easy_setup.sh update-apply --yes --print-json
+6. If inspect says this is not yet a TwinMind-managed install:
+   - run scripts/ai_easy_setup.sh preflight --print-json
+   - run scripts/ai_easy_setup.sh plan --print-json
+   - summarize detected target type, config path, required TwinMind secrets, config-shape compatibility, and what migration would change
+   - do not run apply yet; wait for explicit confirmation
+   - if I confirm, run scripts/ai_easy_setup.sh apply --yes --print-json
+7. After update-apply or apply, report whether the smoke test passed and include the log/report path used for verification.
 
 Hard safety rules:
 - Never run apply before plan.
+- Never re-run migration on an install that inspect already identifies as TwinMind-managed. Use inspect/update-plan/update-apply/update-rollback instead.
 - If TwinMind secrets are missing, stop and say exactly which ones are missing.
 - If `codex` or `timeout` is missing, stop and say so; this repo needs them for the default migration + smoke-test flow.
 - If the detected config is not Clawdbot-compatible, stop instead of patching random JSON.
@@ -77,12 +82,13 @@ scripts/ai_easy_setup.sh apply --yes
 Safe flow:
 
 1. clone the repo and `cd` into it
-2. run `scripts/ai_easy_setup.sh preflight`
-3. run `scripts/ai_easy_setup.sh plan`
-4. stop and review the summary
-5. run `scripts/ai_easy_setup.sh apply --yes` only after explicit confirmation
-6. let the wrapper run the smoke test automatically
-7. use the linked prompt page if you want the same flow in a cleaner standalone copy block
+2. run `scripts/ai_easy_setup.sh inspect`
+3. if the install is already TwinMind-managed, continue with `update-plan`
+4. if the install is not yet TwinMind-managed, continue with `preflight` then `plan`
+5. stop and review the summary
+6. run `update-apply --yes` or `apply --yes` only after explicit confirmation
+7. let the wrapper run the smoke test automatically
+8. use the linked prompt page if you want the same flow in a cleaner standalone copy block
 
 </details>
 
@@ -119,6 +125,47 @@ Everything else in the documented flow is non-mutating.
 | Telegram or other non-WhatsApp gateways | best effort for plain text only | no Telegram-specific transport handling, auto-targeting, or docs-tested migration path |
 
 ## Quickstart
+
+### Already migrated? Update here
+
+Use this path if the target config was already migrated to the TwinMind wrapper and you want to refresh the copied runtime later.
+
+Inspect first:
+
+```bash
+/root/twinmind-split-kit/scripts/inspect_twinmind_install.sh --print-json
+```
+
+Or through the AI-friendly wrapper:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh inspect --print-json
+```
+
+Plan the update:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode update-plan
+```
+
+Apply only after reviewing the plan:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
+  --mode update-apply \
+  --yes
+```
+
+Rollback a prior update with its update id:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
+  --mode update-rollback \
+  --update-id <update-id> \
+  --yes
+```
+
+Default behavior is runtime-only. Config and env syncing stay opt-in during updates.
 
 ### Path 1: Understand the system first
 
@@ -167,6 +214,8 @@ Then continue with:
 
 Use this only when you are ready to patch the real config.
 
+If the install is already TwinMind-managed, stop and use the update path above instead of re-running migration.
+
 Preflight:
 
 1. `python3` exists
@@ -194,12 +243,21 @@ Then run the post-migration smoke test in [docs/05-migration-guide.md](./docs/05
 
 ### Path 4: Wrapper for humans and terminal AI tools
 
-Use this if you want one entrypoint for preflight, plan/apply orchestration, replica planning, and smoke testing.
+Use this if you want one entrypoint for inspect, preflight, plan/apply orchestration, update orchestration, replica planning, and smoke testing.
 
 ```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh inspect
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh preflight
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh plan
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh apply --yes
+```
+
+Existing TwinMind-managed installs should use:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh inspect
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-plan
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-apply --yes
 ```
 
 Optional flags:
@@ -208,6 +266,35 @@ Optional flags:
 - `--print-json` if you want only the final JSON summary
 - `--target-root <path>` for a replica location
 - `--query <text>` to override the smoke-test prompt
+
+### Path 5: Update an already migrated install
+
+Use this only when the target is already TwinMind-managed and you want to sync newer vendored runtime files into that install.
+
+Inspect first:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh inspect
+```
+
+Plan the update:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-plan
+```
+
+Apply only after reviewing the plan:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-apply --yes
+```
+
+Defaults:
+
+- runtime-only update
+- `clawdbot.json` is left untouched unless you opt into `--sync-config 1`
+- `.env` template keys are left untouched unless you opt into `--sync-env-template 1`
+- `update-apply` runs the smoke test afterwards
 
 ## Important provider/model rule
 

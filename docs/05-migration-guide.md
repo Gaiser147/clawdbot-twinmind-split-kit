@@ -2,6 +2,8 @@
 
 This page is only for patching a real local config. If you want a safe dry-run environment first, use [06-operations-runbook.md](./06-operations-runbook.md).
 
+If the target install is already TwinMind-managed, do not re-run migration. Use `inspect`, `update-plan`, `update-apply`, and `update-rollback` instead.
+
 ## Objective
 
 Patch an existing Clawdbot/OpenClaw/Moltbook/Moltbot-style config so it calls a copied `twinmind_orchestrator.py` runtime inside the target app tree and writes rollback artifacts.
@@ -17,14 +19,27 @@ Patch an existing Clawdbot/OpenClaw/Moltbook/Moltbot-style config so it calls a 
 If you want a terminal AI tool to drive the migration, use the repo-owned prompt in [../prompts/terminal-ai-easy-setup.md](../prompts/terminal-ai-easy-setup.md) and let it call:
 
 ```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode inspect --print-json
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode preflight --print-json
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode plan --print-json
+```
+
+If inspect reports an existing TwinMind-managed install, the AI should switch to:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode update-plan --print-json
 ```
 
 Only after you explicitly approve the plan should it run:
 
 ```bash
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode apply --yes --print-json
+```
+
+For an existing TwinMind-managed install, approval should instead trigger:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode update-apply --yes --print-json
 ```
 
 That wrapper still delegates the real patching work to `convert_clawdbot_to_split.sh`; it does not implement a second migration path.
@@ -34,6 +49,9 @@ That wrapper still delegates the real patching work to `convert_clawdbot_to_spli
 - `plan`: inspect what would change
 - `apply`: back up and patch the target config
 - `rollback`: restore from a prior manifest
+- `update-plan`: inspect what a later TwinMind runtime refresh would change
+- `update-apply`: update an already TwinMind-managed install
+- `update-rollback`: restore a prior update
 
 ## Preflight
 
@@ -79,6 +97,15 @@ If you want the same flow in a machine-readable wrapper for a terminal AI tool, 
 /root/twinmind-split-kit/scripts/ai_easy_setup.sh --mode plan --print-json
 ```
 
+For a later TwinMind runtime refresh on an already managed install, use:
+
+```bash
+/root/twinmind-split-kit/scripts/inspect_twinmind_install.sh --print-json
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode update-plan
+```
+
+The default update flow is runtime-only. Config-sync and env-template-sync are opt-in.
+
 ## Apply
 
 ```bash
@@ -91,6 +118,46 @@ Optional additions:
 
 - append non-secret env defaults: `--patch-env`
 - default backend mode `tool_bridge` instead of `conversation`: `--force-split-default`
+
+## Later updates
+
+Use this path only after the install is already TwinMind-managed.
+
+Inspect the install first:
+
+```bash
+/root/twinmind-split-kit/scripts/inspect_twinmind_install.sh --print-json
+```
+
+Plan the update:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode update-plan
+```
+
+Apply the update after review:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
+  --mode update-apply \
+  --yes
+```
+
+Optional additions:
+
+- synchronize managed backend fields: `--sync-config 1`
+- append new non-secret env template keys: `--sync-env-template 1`
+
+Rollback a later update:
+
+```bash
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh \
+  --mode update-rollback \
+  --update-id <update-id> \
+  --yes
+```
+
+The update flow should not be used as a re-migration shortcut. If `inspect` does not report a TwinMind-managed install, go back to the first migration path on this page.
 
 ## What the converter writes by default
 
@@ -184,3 +251,30 @@ Use the manifest written during `apply`:
 ```
 
 See also: [08-rollback.md](./08-rollback.md)
+
+## Later updates
+
+After an installation is already TwinMind-managed, do not run a fresh migration again just to pull newer vendored runtime files. Use the dedicated update flow instead:
+
+```bash
+/root/twinmind-split-kit/scripts/inspect_twinmind_install.sh --print-json
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode update-plan
+/root/twinmind-split-kit/scripts/convert_clawdbot_to_split.sh --mode update-apply --yes
+```
+
+Or through the wrapper:
+
+```bash
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh inspect --print-json
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-plan --print-json
+/root/twinmind-split-kit/scripts/ai_easy_setup.sh update-apply --yes --print-json
+```
+
+Defaults:
+
+- update is **runtime-only**
+- config sync is opt-in with `--sync-config 1`
+- env template sync is opt-in with `--sync-env-template 1`
+- update only works for **TwinMind-managed installs**
+
+For later TwinMind runtime refreshes on an already managed install, use the separate update rollback path described in [08-rollback.md](./08-rollback.md).
